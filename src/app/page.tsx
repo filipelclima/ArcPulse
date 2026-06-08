@@ -454,9 +454,31 @@ function CompareTab() {
   )
 }
 
+// ─── NETWORK SCORE ────────────────────────────────────────────────
+function calcScore(blockTime: number, latency: number, gasStability: number) {
+  if (blockTime === 0 && latency === 0) return null
+  const blockScore = blockTime <= 0.5 ? 100 : blockTime <= 1 ? 85 : blockTime <= 2 ? 60 : 30
+  const latencyScore = latency <= 200 ? 100 : latency <= 400 ? 80 : latency <= 700 ? 55 : 25
+  const gasScore = gasStability <= 1 ? 100 : gasStability <= 5 ? 80 : 50
+  return Math.round(blockScore * 0.4 + latencyScore * 0.35 + gasScore * 0.25)
+}
+
+function scoreLabel(score: number | null) {
+  if (score === null) return { label: '...', color: '#64748b', bg: '#1e1e2e' }
+  if (score >= 90) return { label: 'Excellent', color: '#1D9E75', bg: '#0d2b1f' }
+  if (score >= 70) return { label: 'Good', color: '#EF9F27', bg: '#2b1e0a' }
+  if (score >= 50) return { label: 'Degraded', color: '#f97316', bg: '#2b150a' }
+  return { label: 'ANOMALY', color: '#ef4444', bg: '#2b0a0a' }
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function Home() {
   const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare'>('dashboard')
+  const { data } = useArcData()
+
+  const score = calcScore(data.avgBlockTime, data.rpcLatency, 1)
+  const { label, color, bg } = scoreLabel(score)
+  const isAnomaly = score !== null && score < 50
 
   const tabs = [
     { id: 'dashboard', label: '📊 Dashboard' },
@@ -467,12 +489,30 @@ export default function Home() {
   return (
     <main style={{ minHeight: '100vh', background: '#0a0a0f', padding: '1.5rem', maxWidth: 1100, margin: '0 auto' }}>
 
+      {/* Anomaly banner */}
+      {isAnomaly && (
+        <div style={{ background: '#2b0a0a', border: '1px solid #ef4444', borderRadius: 10, padding: '10px 16px', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 500 }}>Network Anomaly Detected</span>
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>— Block time or latency is above normal thresholds. Monitor closely.</span>
+        </div>
+      )}
+
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: '1.5rem' }}>
-        <img src="/Arc_Logo.png" alt="ArcPulse" style={{ height: 100, width: 'auto' }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1D9E75', boxShadow: '0 0 8px #1D9E75', animation: 'pulse 2s infinite' }} />
-          <p style={{ fontSize: 12, color: '#64748b' }}>Arc Testnet · Network Health Monitor</p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <img src="/Arc_Logo.png" alt="ArcPulse" style={{ height: 100, width: 'auto' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1D9E75', boxShadow: '0 0 8px #1D9E75', animation: 'pulse 2s infinite' }} />
+            <p style={{ fontSize: 12, color: '#64748b' }}>Arc Testnet · Network Health Monitor</p>
+          </div>
+        </div>
+
+        {/* Network Score */}
+        <div style={{ background: bg, border: `1px solid ${color}44`, borderRadius: 12, padding: '10px 18px', textAlign: 'center', minWidth: 110 }}>
+          <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Health Score</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{score ?? '—'}</div>
+          <div style={{ fontSize: 11, color, marginTop: 3, fontWeight: 500 }}>{label}</div>
         </div>
       </div>
 
@@ -496,7 +536,7 @@ export default function Home() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem', fontSize: 11, color: '#334155' }}>
         <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002</span>
-        <span>ArcPulse v0.2</span>
+        <span>ArcPulse v0.3</span>
       </div>
 
       <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
