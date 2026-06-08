@@ -95,6 +95,28 @@ function networkStatus(blockTime: number, latency: number) {
 // ─── DASHBOARD TAB ────────────────────────────────────────────────
 function DashboardTab() {
   const { data, refresh } = useArcData()
+  const [gasHistory, setGasHistory] = useState<{day: string; gas: number}[]>([])
+  const [builderActivity, setBuilderActivity] = useState<{day: string; contracts: number; txs: number}[]>([])
+
+  useEffect(() => {
+    // Gas history from Supabase
+    fetchSnapshots().then(snaps => {
+      const byDay = groupByDay(snaps)
+      const gh = Object.entries(byDay).sort().map(([day, s]) => ({
+        day: day.slice(5), // MM-DD
+        gas: parseFloat(avg(s.map(x => x.gas_price)).toFixed(4)),
+      }))
+      setGasHistory(gh)
+
+      // Builder activity: contracts = snapshots with high tx count as proxy, txs = total
+      const ba = Object.entries(byDay).sort().map(([day, s]) => ({
+        day: day.slice(5),
+        contracts: s.filter(x => x.tx_count > 50).length,
+        txs: Math.round(avg(s.map(x => x.tx_count))),
+      }))
+      setBuilderActivity(ba)
+    })
+  }, [])
 
   const blockTimeData = data.blocks.slice(1).map((b, i) => ({
     block: `#${b.number.toLocaleString()}`,
@@ -154,6 +176,45 @@ function DashboardTab() {
               <Bar dataKey="txs" fill="#378ADD" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Gas History + Builder Activity */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1.5rem' }}>
+        <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Gas price history</div>
+          <div style={{ fontSize: 11, color: '#334155', marginBottom: 10 }}>Average gwei per day — from Supabase snapshots</div>
+          {gasHistory.length < 2 ? (
+            <div style={{ fontSize: 12, color: '#475569', textAlign: 'center', padding: '2rem 0' }}>Collecting data... visit /api/collect to generate snapshots</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={150}>
+              <LineChart data={gasHistory}>
+                <CartesianGrid stroke="#1e1e2e" strokeDasharray="3 3" />
+                <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} width={40} />
+                <Tooltip {...chartTooltipStyle} />
+                <Line type="monotone" dataKey="gas" stroke="#EF9F27" strokeWidth={2} dot={{ r: 3, fill: '#EF9F27' }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Builder activity index</div>
+          <div style={{ fontSize: 11, color: '#334155', marginBottom: 10 }}>Avg transactions per snapshot per day</div>
+          {builderActivity.length < 2 ? (
+            <div style={{ fontSize: 12, color: '#475569', textAlign: 'center', padding: '2rem 0' }}>Collecting data... more snapshots needed</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={150}>
+              <BarChart data={builderActivity}>
+                <CartesianGrid stroke="#1e1e2e" strokeDasharray="3 3" />
+                <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} width={28} />
+                <Tooltip {...chartTooltipStyle} />
+                <Bar dataKey="txs" fill="#A78BFA" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
