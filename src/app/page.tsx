@@ -1,12 +1,14 @@
 'use client'
 import { useArcData } from './useArcData'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 
 const RPC = 'https://rpc.testnet.arc.network'
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 async function rpcCall(method: string, params: unknown[] = []) {
   const res = await fetch(RPC, {
@@ -19,18 +21,6 @@ async function rpcCall(method: string, params: unknown[] = []) {
 }
 
 const hexToNum = (h: string) => parseInt(h, 16)
-
-interface WalletTx {
-  hash: string
-  block: number
-  timestamp: number
-  gas: number
-  gasPrice: number
-  gasCost: number
-  hour: number
-  to: string
-  value: number
-}
 
 function timeAgo(ts: number) {
   const d = Math.floor(Date.now() / 1000) - ts
@@ -56,207 +46,54 @@ const chartTooltipStyle = {
   labelStyle: { color: '#94a3b8' },
 }
 
-function WalletLookup() {
-  const [address, setAddress] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [txs, setTxs] = useState<WalletTx[]>([])
-  const [balance, setBalance] = useState<string | null>(null)
-  const [searched, setSearched] = useState(false)
-
-  async function lookup() {
-    const addr = address.trim()
-    if (!addr.startsWith('0x') || addr.length !== 42) {
-      setError('Enter a valid wallet address (0x...)')
-      return
-    }
-    setLoading(true)
-    setError('')
-    setTxs([])
-    setBalance(null)
-    setSearched(false)
-
-    try {
-      // Get balance
-      const balHex = await rpcCall('eth_getBalance', [addr, 'latest'])
-      const balUSDC = (hexToNum(balHex) / 1e6).toFixed(4)
-      setBalance(balUSDC)
-
-      // Get latest block
-      const latestHex = await rpcCall('eth_blockNumber')
-      const latest = hexToNum(latestHex)
-
-      // Scan last 200 blocks for transactions
-      const scanRange = 200
-      const startBlock = Math.max(0, latest - scanRange)
-      const blockNums = Array.from({ length: Math.min(scanRange, 50) }, (_, i) =>
-        startBlock + Math.floor(i * scanRange / 50)
-      )
-
-      const blocks = await Promise.all(
-        blockNums.map(n =>
-          rpcCall('eth_getBlockByNumber', ['0x' + n.toString(16), true])
-        )
-      )
-
-      const found: WalletTx[] = []
-      for (const block of blocks) {
-        if (!block?.transactions) continue
-        for (const tx of block.transactions) {
-          if (
-            tx.from?.toLowerCase() === addr.toLowerCase() ||
-            tx.to?.toLowerCase() === addr.toLowerCase()
-          ) {
-            const gas = hexToNum(tx.gas ?? '0x0')
-            const gasPrice = hexToNum(tx.gasPrice ?? '0x0') / 1e9
-            const gasCost = (gas * gasPrice) / 1e9
-            const ts = hexToNum(block.timestamp)
-            found.push({
-              hash: tx.hash,
-              block: hexToNum(block.number),
-              timestamp: ts,
-              gas,
-              gasPrice,
-              gasCost,
-              hour: new Date(ts * 1000).getUTCHours(),
-              to: tx.to ?? 'Contract Creation',
-              value: hexToNum(tx.value ?? '0x0') / 1e6,
-            })
-          }
-        }
-      }
-
-      setTxs(found)
-      setSearched(true)
-    } catch {
-      setError('Failed to fetch wallet data. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Build hour heatmap
-  const hourMap: Record<number, { count: number; totalGas: number }> = {}
-  for (let h = 0; h < 24; h++) hourMap[h] = { count: 0, totalGas: 0 }
-  for (const tx of txs) {
-    hourMap[tx.hour].count++
-    hourMap[tx.hour].totalGas += tx.gasCost
-  }
-  const heatmapData = Object.entries(hourMap).map(([h, v]) => ({
-    hour: `${h}h`,
-    txs: v.count,
-    gas: parseFloat(v.totalGas.toFixed(6)),
-  }))
-
-  const totalGas = txs.reduce((a, b) => a + b.gasCost, 0)
-  const peakHour = heatmapData.reduce((a, b) => b.txs > a.txs ? b : a, heatmapData[0])
-
-  return (
-    <div style={{ marginTop: '2rem' }}>
-      <div style={{ fontSize: 13, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>
-        🔍 Wallet Lookup
-      </div>
-
-      <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: '1rem' }}>
-          <input
-            type="text"
-            placeholder="Enter wallet address (0x...)"
-            value={address}
-            onChange={e => setAddress(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && lookup()}
-            style={{
-              flex: 1, background: '#0a0a0f', border: '1px solid #1e1e2e',
-              borderRadius: 8, padding: '10px 14px', color: '#f1f5f9',
-              fontSize: 13, outline: 'none',
-            }}
-          />
-          <button
-            onClick={lookup}
-            disabled={loading}
-            style={{
-              background: '#1D9E75', color: '#fff', border: 'none',
-              borderRadius: 8, padding: '10px 20px', fontSize: 13,
-              fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.7 : 1,
-            }}
-          >
-            {loading ? 'Searching...' : 'Search'}
-          </button>
-        </div>
-
-        {error && (
-          <div style={{ fontSize: 13, color: '#f87171', marginBottom: '1rem' }}>⚠ {error}</div>
-        )}
-
-        {searched && (
-          <>
-            {/* Summary cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: '1.25rem' }}>
-              <MetricCard label="Balance" value={balance ?? '—'} unit="USDC" color="#1D9E75" />
-              <MetricCard label="Transactions" value={txs.length} unit="found (last 200 blocks)" color="#378ADD" />
-              <MetricCard label="Total gas spent" value={totalGas.toFixed(6)} unit="gwei" color="#EF9F27" />
-              <MetricCard label="Peak hour" value={txs.length > 0 ? peakHour.hour : '—'} unit="UTC (most active)" color="#A78BFA" />
-            </div>
-
-            {txs.length > 0 ? (
-              <>
-                {/* Gas by hour chart */}
-                <div style={{ marginBottom: '1.25rem' }}>
-                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Transactions by hour (UTC)
-                  </div>
-                  <ResponsiveContainer width="100%" height={140}>
-                    <BarChart data={heatmapData}>
-                      <CartesianGrid stroke="#1e1e2e" strokeDasharray="3 3" />
-                      <XAxis dataKey="hour" tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} width={24} />
-                      <Tooltip {...chartTooltipStyle} />
-                      <Bar dataKey="txs" fill="#A78BFA" radius={[3, 3, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-
-                {/* Tx list */}
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Recent transactions
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ color: '#475569', fontSize: 11, textTransform: 'uppercase' }}>
-                      <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Hash</th>
-                      <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Block</th>
-                      <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Age</th>
-                      <th style={{ textAlign: 'right', paddingBottom: 8, fontWeight: 500 }}>Gas (gwei)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {txs.slice(0, 10).map(tx => (
-                      <tr key={tx.hash} style={{ borderTop: '1px solid #1e1e2e' }}>
-                        <td style={{ padding: '8px 0', color: '#378ADD', fontFamily: 'monospace' }}>
-                          {tx.hash.slice(0, 10)}...{tx.hash.slice(-6)}
-                        </td>
-                        <td style={{ padding: '8px 0', color: '#1D9E75' }}>#{tx.block.toLocaleString()}</td>
-                        <td style={{ padding: '8px 0', color: '#64748b' }}>{timeAgo(tx.timestamp)}</td>
-                        <td style={{ padding: '8px 0', textAlign: 'right', color: '#EF9F27' }}>{tx.gasCost.toFixed(6)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            ) : (
-              <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '1.5rem' }}>
-                No transactions found for this address in the last 200 blocks.
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  )
+// ─── SUPABASE FETCH ───────────────────────────────────────────────
+interface Snapshot {
+  id: number
+  created_at: string
+  block_number: number
+  block_time_avg: number
+  gas_price: number
+  rpc_latency: number
+  tx_count: number
+  chain_id: number
 }
 
-export default function Home() {
+async function fetchSnapshots(from?: string, to?: string): Promise<Snapshot[]> {
+  let url = `${SUPABASE_URL}/rest/v1/network_snapshots?select=*&order=created_at.asc`
+  if (from) url += `&created_at=gte.${from}T00:00:00`
+  if (to) url += `&created_at=lte.${to}T23:59:59`
+  const res = await fetch(url, {
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+    },
+  })
+  return res.json()
+}
+
+function groupByDay(snapshots: Snapshot[]) {
+  const map: Record<string, Snapshot[]> = {}
+  for (const s of snapshots) {
+    const day = s.created_at.slice(0, 10)
+    if (!map[day]) map[day] = []
+    map[day].push(s)
+  }
+  return map
+}
+
+function avg(arr: number[]) {
+  if (!arr.length) return 0
+  return arr.reduce((a, b) => a + b, 0) / arr.length
+}
+
+function networkStatus(blockTime: number, latency: number) {
+  if (blockTime < 1 && latency < 300) return { label: 'Healthy', color: '#1D9E75' }
+  if (blockTime < 2 && latency < 600) return { label: 'Normal', color: '#EF9F27' }
+  return { label: 'Degraded', color: '#ef4444' }
+}
+
+// ─── DASHBOARD TAB ────────────────────────────────────────────────
+function DashboardTab() {
   const { data, refresh } = useArcData()
 
   const blockTimeData = data.blocks.slice(1).map((b, i) => ({
@@ -273,29 +110,17 @@ export default function Home() {
   const statusLabel = data.status === 'live' ? 'Live' : data.status === 'error' ? 'Error' : 'Connecting...'
 
   return (
-    <main style={{ minHeight: '100vh', background: '#0a0a0f', padding: '2rem 1.5rem', maxWidth: 1100, margin: '0 auto' }}>
-
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <img src="/Arc_Logo.png" alt="ArcPulse" style={{ height: 100, width: 'auto' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1D9E75', boxShadow: '0 0 8px #1D9E75', animation: 'pulse 2s infinite' }} />
-            <p style={{ fontSize: 12, color: '#64748b' }}>Arc Testnet · Network Health Monitor</p>
-          </div>
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.25rem', gap: 12, alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: statusColor }}>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }} />
+          {statusLabel}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: statusColor }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }} />
-            {statusLabel}
-          </div>
-          <button onClick={refresh} style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #1e1e2e', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
-            ↻ Refresh
-          </button>
-        </div>
+        <button onClick={refresh} style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #1e1e2e', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
+          ↻ Refresh
+        </button>
       </div>
 
-      {/* Metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: '1.5rem' }}>
         <MetricCard label="Latest block" value={data.latestBlock > 0 ? data.latestBlock.toLocaleString() : '—'} unit="block number" />
         <MetricCard label="Avg block time" value={data.avgBlockTime > 0 ? `${data.avgBlockTime}s` : '—'} unit="last 10 blocks" color="#378ADD" />
@@ -305,7 +130,6 @@ export default function Home() {
         <MetricCard label="Chain ID" value={data.chainId > 0 ? data.chainId : '—'} unit="Arc Testnet" color="#64748b" />
       </div>
 
-      {/* Charts */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1.5rem' }}>
         <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
           <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Block time (s)</div>
@@ -333,7 +157,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Recent blocks */}
       <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Recent blocks</div>
         {data.blocks.length === 0 ? (
@@ -361,14 +184,319 @@ export default function Home() {
           </table>
         )}
       </div>
+    </>
+  )
+}
 
-      {/* Wallet Lookup */}
-      <WalletLookup />
+// ─── REPORTS TAB ─────────────────────────────────────────────────
+function ReportsTab() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<string | null>(null)
 
-      {/* Footer */}
+  useEffect(() => {
+    fetchSnapshots().then(data => { setSnapshots(data); setLoading(false) })
+  }, [])
+
+  async function search() {
+    setLoading(true)
+    const data = await fetchSnapshots(from || undefined, to || undefined)
+    setSnapshots(data)
+    setLoading(false)
+  }
+
+  const byDay = groupByDay(snapshots)
+  const days = Object.keys(byDay).sort().reverse()
+
+  return (
+    <div>
+      {/* Filter bar */}
+      <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filter by date</div>
+        <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+          style={{ background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: 8, padding: '7px 12px', color: '#f1f5f9', fontSize: 13 }} />
+        <span style={{ color: '#475569', fontSize: 13 }}>to</span>
+        <input type="date" value={to} onChange={e => setTo(e.target.value)}
+          style={{ background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: 8, padding: '7px 12px', color: '#f1f5f9', fontSize: 13 }} />
+        <button onClick={search} style={{ background: '#1D9E75', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+          Search
+        </button>
+        <button onClick={() => { setFrom(''); setTo(''); fetchSnapshots().then(setSnapshots) }}
+          style={{ background: 'transparent', color: '#64748b', border: '1px solid #1e1e2e', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer' }}>
+          Clear
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '2rem' }}>Loading reports...</div>
+      ) : days.length === 0 ? (
+        <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '2rem' }}>No reports found for this period.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 12 }}>
+          {/* Day list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {days.map(day => {
+              const snaps = byDay[day]
+              const status = networkStatus(avg(snaps.map(s => s.block_time_avg)), avg(snaps.map(s => s.rpc_latency)))
+              return (
+                <div key={day} onClick={() => setSelected(day)}
+                  style={{ background: selected === day ? '#1a2a1a' : '#13131a', border: `1px solid ${selected === day ? '#1D9E75' : '#1e1e2e'}`, borderRadius: 10, padding: '0.875rem 1rem', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: '#f1f5f9' }}>{day}</div>
+                    <span style={{ fontSize: 11, color: status.color, background: `${status.color}22`, padding: '2px 8px', borderRadius: 6 }}>{status.label}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>{snaps.length} snapshot{snaps.length > 1 ? 's' : ''}</div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Report detail */}
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
+            {!selected ? (
+              <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', marginTop: '3rem' }}>← Select a day to view the report</div>
+            ) : (() => {
+              const snaps = byDay[selected]
+              const avgBlockTime = avg(snaps.map(s => s.block_time_avg))
+              const avgGas = avg(snaps.map(s => s.gas_price))
+              const avgLatency = avg(snaps.map(s => s.rpc_latency))
+              const totalTx = snaps.reduce((a, s) => a + s.tx_count, 0)
+              const status = networkStatus(avgBlockTime, avgLatency)
+              const chartData = snaps.map(s => ({
+                time: s.created_at.slice(11, 16),
+                blockTime: s.block_time_avg,
+                gas: s.gas_price,
+                latency: s.rpc_latency,
+              }))
+
+              return (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: '#f1f5f9' }}>Report · {selected}</div>
+                      <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>Arc Testnet · {snaps.length} snapshots</div>
+                    </div>
+                    <span style={{ fontSize: 13, color: status.color, background: `${status.color}22`, padding: '4px 12px', borderRadius: 8 }}>{status.label}</span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: '1.25rem' }}>
+                    <MetricCard label="Avg block time" value={`${avgBlockTime.toFixed(3)}s`} unit="seconds" color="#1D9E75" />
+                    <MetricCard label="Avg gas" value={`${avgGas.toFixed(4)}`} unit="gwei" color="#EF9F27" />
+                    <MetricCard label="Avg latency" value={`${Math.round(avgLatency)}ms`} unit="RPC response" color="#A78BFA" />
+                    <MetricCard label="Total txs" value={totalTx} unit="transactions" color="#378ADD" />
+                  </div>
+
+                  {chartData.length > 1 && (
+                    <>
+                      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Block time over the day</div>
+                      <ResponsiveContainer width="100%" height={120}>
+                        <LineChart data={chartData}>
+                          <CartesianGrid stroke="#1e1e2e" strokeDasharray="3 3" />
+                          <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} />
+                          <YAxis tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} width={28} />
+                          <Tooltip {...chartTooltipStyle} />
+                          <Line type="monotone" dataKey="blockTime" stroke="#1D9E75" strokeWidth={2} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </>
+                  )}
+
+                  <div style={{ marginTop: '1rem', background: '#0a0a0f', borderRadius: 8, padding: '1rem', fontSize: 13, color: '#94a3b8', lineHeight: 1.7 }}>
+                    <strong style={{ color: '#f1f5f9' }}>Summary</strong><br />
+                    On {selected}, the Arc testnet recorded an average block time of <strong style={{ color: '#1D9E75' }}>{avgBlockTime.toFixed(3)}s</strong> {avgBlockTime < 1 ? '— well within the sub-second finality promise.' : '— slightly above the sub-second target.'}{' '}
+                    Gas remained at <strong style={{ color: '#EF9F27' }}>{avgGas.toFixed(4)} gwei</strong> in USDC, showing {avgGas < 25 ? 'stable and predictable' : 'elevated'} fee behavior.{' '}
+                    RPC latency averaged <strong style={{ color: '#A78BFA' }}>{Math.round(avgLatency)}ms</strong>, indicating a {avgLatency < 300 ? 'responsive' : 'moderately slow'} network.{' '}
+                    Network status: <strong style={{ color: status.color }}>{status.label}</strong>.
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── COMPARE TAB ─────────────────────────────────────────────────
+function CompareTab() {
+  const [periodA, setPeriodA] = useState({ from: '', to: '' })
+  const [periodB, setPeriodB] = useState({ from: '', to: '' })
+  const [dataA, setDataA] = useState<Snapshot[]>([])
+  const [dataB, setDataB] = useState<Snapshot[]>([])
+  const [loading, setLoading] = useState(false)
+  const [compared, setCompared] = useState(false)
+
+  async function compare() {
+    if (!periodA.from || !periodB.from) return
+    setLoading(true)
+    const [a, b] = await Promise.all([
+      fetchSnapshots(periodA.from, periodA.to || periodA.from),
+      fetchSnapshots(periodB.from, periodB.to || periodB.from),
+    ])
+    setDataA(a)
+    setDataB(b)
+    setCompared(true)
+    setLoading(false)
+  }
+
+  function CompareMetric({ label, a, b, unit, higherIsBetter = false }: {
+    label: string; a: number; b: number; unit: string; higherIsBetter?: boolean
+  }) {
+    const diff = b - a
+    const pct = a !== 0 ? ((diff / a) * 100).toFixed(1) : '0'
+    const improved = higherIsBetter ? diff > 0 : diff < 0
+    const color = diff === 0 ? '#64748b' : improved ? '#1D9E75' : '#ef4444'
+    const arrow = diff === 0 ? '→' : diff > 0 ? '↑' : '↓'
+
+    return (
+      <div style={{ background: '#0a0a0f', borderRadius: 10, padding: '1rem', border: '1px solid #1e1e2e' }}>
+        <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>{label}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 8, alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 600, color: '#f1f5f9' }}>{a.toFixed(3)}</div>
+            <div style={{ fontSize: 11, color: '#475569' }}>Period A</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 18, color }}>{arrow}</div>
+            <div style={{ fontSize: 11, color, fontWeight: 600 }}>{diff > 0 ? '+' : ''}{pct}%</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 20, fontWeight: 600, color: '#f1f5f9' }}>{b.toFixed(3)}</div>
+            <div style={{ fontSize: 11, color: '#475569' }}>Period B</div>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: '#334155', marginTop: 6, textAlign: 'center' }}>{unit}</div>
+      </div>
+    )
+  }
+
+  const aBlockTime = avg(dataA.map(s => s.block_time_avg))
+  const bBlockTime = avg(dataB.map(s => s.block_time_avg))
+  const aGas = avg(dataA.map(s => s.gas_price))
+  const bGas = avg(dataB.map(s => s.gas_price))
+  const aLatency = avg(dataA.map(s => s.rpc_latency))
+  const bLatency = avg(dataB.map(s => s.rpc_latency))
+  const aTx = dataA.reduce((a, s) => a + s.tx_count, 0)
+  const bTx = dataB.reduce((a, s) => a + s.tx_count, 0)
+
+  return (
+    <div>
+      <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          {/* Period A */}
+          <div>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Period A</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input type="date" value={periodA.from} onChange={e => setPeriodA(p => ({ ...p, from: e.target.value }))}
+                style={{ background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: 8, padding: '7px 12px', color: '#f1f5f9', fontSize: 13 }} />
+              <span style={{ color: '#475569', fontSize: 13, alignSelf: 'center' }}>to</span>
+              <input type="date" value={periodA.to} onChange={e => setPeriodA(p => ({ ...p, to: e.target.value }))}
+                style={{ background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: 8, padding: '7px 12px', color: '#f1f5f9', fontSize: 13 }} />
+            </div>
+          </div>
+          {/* Period B */}
+          <div>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Period B</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input type="date" value={periodB.from} onChange={e => setPeriodB(p => ({ ...p, from: e.target.value }))}
+                style={{ background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: 8, padding: '7px 12px', color: '#f1f5f9', fontSize: 13 }} />
+              <span style={{ color: '#475569', fontSize: 13, alignSelf: 'center' }}>to</span>
+              <input type="date" value={periodB.to} onChange={e => setPeriodB(p => ({ ...p, to: e.target.value }))}
+                style={{ background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: 8, padding: '7px 12px', color: '#f1f5f9', fontSize: 13 }} />
+            </div>
+          </div>
+        </div>
+        <button onClick={compare} disabled={loading || !periodA.from || !periodB.from}
+          style={{ marginTop: 16, background: '#1D9E75', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 24px', fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+          {loading ? 'Comparing...' : 'Compare'}
+        </button>
+      </div>
+
+      {compared && (
+        dataA.length === 0 || dataB.length === 0 ? (
+          <div style={{ fontSize: 13, color: '#ef4444', textAlign: 'center', padding: '2rem' }}>
+            No data found for one or both periods. Try different dates.
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <div style={{ fontSize: 13, color: '#64748b' }}>
+                Period A: <strong style={{ color: '#f1f5f9' }}>{periodA.from}{periodA.to && periodA.to !== periodA.from ? ` → ${periodA.to}` : ''}</strong> ({dataA.length} snapshots)
+              </div>
+              <div style={{ fontSize: 13, color: '#64748b' }}>
+                Period B: <strong style={{ color: '#f1f5f9' }}>{periodB.from}{periodB.to && periodB.to !== periodB.from ? ` → ${periodB.to}` : ''}</strong> ({dataB.length} snapshots)
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: '1.25rem' }}>
+              <CompareMetric label="Avg block time" a={aBlockTime} b={bBlockTime} unit="seconds — lower is better" />
+              <CompareMetric label="Avg gas price" a={aGas} b={bGas} unit="gwei — lower is better" />
+              <CompareMetric label="Avg RPC latency" a={aLatency} b={bLatency} unit="milliseconds — lower is better" />
+              <CompareMetric label="Total transactions" a={aTx} b={bTx} unit="count — higher is better" higherIsBetter />
+            </div>
+
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#f1f5f9', marginBottom: 8 }}>Comparison Summary</div>
+              <div style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.8 }}>
+                Comparing <strong style={{ color: '#f1f5f9' }}>Period A</strong> vs <strong style={{ color: '#f1f5f9' }}>Period B</strong>:{' '}
+                Block time {bBlockTime < aBlockTime ? <span style={{ color: '#1D9E75' }}>improved by {(((aBlockTime - bBlockTime) / aBlockTime) * 100).toFixed(1)}%</span> : <span style={{ color: '#ef4444' }}>increased by {(((bBlockTime - aBlockTime) / aBlockTime) * 100).toFixed(1)}%</span>}.{' '}
+                Gas price {bGas < aGas ? <span style={{ color: '#1D9E75' }}>decreased</span> : bGas > aGas ? <span style={{ color: '#ef4444' }}>increased</span> : <span style={{ color: '#64748b' }}>remained stable</span>}.{' '}
+                RPC latency {bLatency < aLatency ? <span style={{ color: '#1D9E75' }}>improved</span> : <span style={{ color: '#ef4444' }}>degraded</span>}.{' '}
+                Transaction volume {bTx > aTx ? <span style={{ color: '#1D9E75' }}>grew</span> : <span style={{ color: '#ef4444' }}>declined</span>}.
+              </div>
+            </div>
+          </>
+        )
+      )}
+    </div>
+  )
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────
+export default function Home() {
+  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare'>('dashboard')
+
+  const tabs = [
+    { id: 'dashboard', label: '📊 Dashboard' },
+    { id: 'reports', label: '📋 Reports' },
+    { id: 'compare', label: '⚖️ Compare' },
+  ] as const
+
+  return (
+    <main style={{ minHeight: '100vh', background: '#0a0a0f', padding: '1.5rem', maxWidth: 1100, margin: '0 auto' }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: '1.5rem' }}>
+        <img src="/Arc_Logo.png" alt="ArcPulse" style={{ height: 100, width: 'auto' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#1D9E75', boxShadow: '0 0 8px #1D9E75', animation: 'pulse 2s infinite' }} />
+          <p style={{ fontSize: 12, color: '#64748b' }}>Arc Testnet · Network Health Monitor</p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: '1.5rem', background: '#13131a', borderRadius: 10, padding: 4, border: '1px solid #1e1e2e', width: 'fit-content' }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{
+              padding: '8px 20px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+              background: tab === t.id ? '#1D9E75' : 'transparent',
+              color: tab === t.id ? '#fff' : '#64748b',
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'dashboard' && <DashboardTab />}
+      {tab === 'reports' && <ReportsTab />}
+      {tab === 'compare' && <CompareTab />}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem', fontSize: 11, color: '#334155' }}>
-        <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002 · Auto-refresh every 30s</span>
-        <span>{data.lastUpdated ? `Updated ${data.lastUpdated.toLocaleTimeString()}` : '—'}</span>
+        <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002</span>
+        <span>ArcPulse v0.2</span>
       </div>
 
       <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
