@@ -256,6 +256,8 @@ function ReportsTab() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string | null>(null)
+  const [aiReport, setAiReport] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
 
   useEffect(() => {
     fetchSnapshots().then(data => { setSnapshots(data); setLoading(false) })
@@ -263,16 +265,68 @@ function ReportsTab() {
 
   async function search() {
     setLoading(true)
+    setAiReport(null)
     const data = await fetchSnapshots(from || undefined, to || undefined)
     setSnapshots(data)
     setLoading(false)
   }
 
+  async function generateAIReport() {
+    if (!selected) return
+    setAiLoading(true)
+    setAiReport(null)
+    const snaps = byDay[selected]
+    const period = selected
+    try {
+      const res = await fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshots: snaps, period }),
+      })
+      const data = await res.json()
+      setAiReport(data.report ?? 'Failed to generate report.')
+    } catch {
+      setAiReport('Error connecting to AI. Please try again.')
+    }
+    setAiLoading(false)
+  }
+
   const byDay = groupByDay(snapshots)
   const days = Object.keys(byDay).sort().reverse()
 
+  // Uptime calculation
+  const totalSnaps = snapshots.length
+  const healthySnaps = snapshots.filter(s => !(s as any).anomaly).length
+  const uptimePct = totalSnaps > 0 ? ((healthySnaps / totalSnaps) * 100).toFixed(1) : '—'
+  const uptimeColor = parseFloat(uptimePct) >= 99 ? '#1D9E75' : parseFloat(uptimePct) >= 95 ? '#EF9F27' : '#ef4444'
+  const avgScore = totalSnaps > 0 ? Math.round(snapshots.reduce((a, s) => a + ((s as any).health_score ?? 75), 0) / totalSnaps) : 0
+
   return (
     <div>
+      {/* Uptime Tracker */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: '1.25rem' }}>
+        <div style={{ background: '#13131a', border: `1px solid ${uptimeColor}44`, borderRadius: 12, padding: '1rem 1.25rem' }}>
+          <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Network Uptime</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: uptimeColor }}>{uptimePct}%</div>
+          <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>based on {totalSnaps} snapshots</div>
+        </div>
+        <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+          <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Healthy Snapshots</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#1D9E75' }}>{healthySnaps}</div>
+          <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>of {totalSnaps} total</div>
+        </div>
+        <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+          <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Avg Health Score</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#A78BFA' }}>{avgScore || '—'}</div>
+          <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>across all snapshots</div>
+        </div>
+        <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+          <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Days Monitored</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#378ADD' }}>{days.length}</div>
+          <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>since first snapshot</div>
+        </div>
+      </div>
+
       {/* Filter bar */}
       <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filter by date</div>
@@ -284,7 +338,7 @@ function ReportsTab() {
         <button onClick={search} style={{ background: '#1D9E75', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
           Search
         </button>
-        <button onClick={() => { setFrom(''); setTo(''); fetchSnapshots().then(setSnapshots) }}
+        <button onClick={() => { setFrom(''); setTo(''); setAiReport(null); fetchSnapshots().then(setSnapshots) }}
           style={{ background: 'transparent', color: '#64748b', border: '1px solid #1e1e2e', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer' }}>
           Clear
         </button>
@@ -302,7 +356,7 @@ function ReportsTab() {
               const snaps = byDay[day]
               const status = networkStatus(avg(snaps.map(s => s.block_time_avg)), avg(snaps.map(s => s.rpc_latency)))
               return (
-                <div key={day} onClick={() => setSelected(day)}
+                <div key={day} onClick={() => { setSelected(day); setAiReport(null) }}
                   style={{ background: selected === day ? '#1a2a1a' : '#13131a', border: `1px solid ${selected === day ? '#1D9E75' : '#1e1e2e'}`, borderRadius: 10, padding: '0.875rem 1rem', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ fontSize: 14, fontWeight: 500, color: '#f1f5f9' }}>{day}</div>
@@ -339,7 +393,13 @@ function ReportsTab() {
                       <div style={{ fontSize: 18, fontWeight: 600, color: '#f1f5f9' }}>Report · {selected}</div>
                       <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>Arc Testnet · {snaps.length} snapshots</div>
                     </div>
-                    <span style={{ fontSize: 13, color: status.color, background: `${status.color}22`, padding: '4px 12px', borderRadius: 8 }}>{status.label}</span>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, color: status.color, background: `${status.color}22`, padding: '4px 12px', borderRadius: 8 }}>{status.label}</span>
+                      <button onClick={generateAIReport} disabled={aiLoading}
+                        style={{ background: aiLoading ? '#1a1a2e' : '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 500, cursor: aiLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {aiLoading ? '⏳ Generating...' : '✨ AI Report'}
+                      </button>
+                    </div>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: '1.25rem' }}>
@@ -364,13 +424,30 @@ function ReportsTab() {
                     </>
                   )}
 
-                  <div style={{ marginTop: '1rem', background: '#0a0a0f', borderRadius: 8, padding: '1rem', fontSize: 13, color: '#94a3b8', lineHeight: 1.7 }}>
-                    <strong style={{ color: '#f1f5f9' }}>Summary</strong><br />
-                    On {selected}, the Arc testnet recorded an average block time of <strong style={{ color: '#1D9E75' }}>{avgBlockTime.toFixed(3)}s</strong> {avgBlockTime < 1 ? '— well within the sub-second finality promise.' : '— slightly above the sub-second target.'}{' '}
-                    Gas remained at <strong style={{ color: '#EF9F27' }}>{avgGas.toFixed(4)} gwei</strong> in USDC, showing {avgGas < 25 ? 'stable and predictable' : 'elevated'} fee behavior.{' '}
-                    RPC latency averaged <strong style={{ color: '#A78BFA' }}>{Math.round(avgLatency)}ms</strong>, indicating a {avgLatency < 300 ? 'responsive' : 'moderately slow'} network.{' '}
-                    Network status: <strong style={{ color: status.color }}>{status.label}</strong>.
-                  </div>
+                  {/* AI Report output */}
+                  {aiReport && (
+                    <div style={{ marginTop: '1.25rem', background: '#0a0a1a', border: '1px solid #4f46e5', borderRadius: 10, padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: '#818cf8' }}>✨ AI Generated Report</div>
+                        <button onClick={() => navigator.clipboard.writeText(aiReport)}
+                          style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #4f46e5', background: 'transparent', color: '#818cf8', cursor: 'pointer' }}>
+                          Copy
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{aiReport}</div>
+                    </div>
+                  )}
+
+                  {!aiReport && (
+                    <div style={{ marginTop: '1rem', background: '#0a0a0f', borderRadius: 8, padding: '1rem', fontSize: 13, color: '#94a3b8', lineHeight: 1.7 }}>
+                      <strong style={{ color: '#f1f5f9' }}>Summary</strong><br />
+                      On {selected}, the Arc testnet recorded an average block time of <strong style={{ color: '#1D9E75' }}>{avgBlockTime.toFixed(3)}s</strong> {avgBlockTime < 1 ? '— within the sub-second finality promise.' : '— slightly above the sub-second target.'}{' '}
+                      Gas remained at <strong style={{ color: '#EF9F27' }}>{avgGas.toFixed(4)} gwei</strong> in USDC.{' '}
+                      RPC latency averaged <strong style={{ color: '#A78BFA' }}>{Math.round(avgLatency)}ms</strong>.{' '}
+                      Network status: <strong style={{ color: status.color }}>{status.label}</strong>.{' '}
+                      Click <strong style={{ color: '#818cf8' }}>✨ AI Report</strong> to generate a full analysis.
+                    </div>
+                  )}
                 </>
               )
             })()}
