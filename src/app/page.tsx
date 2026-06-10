@@ -515,6 +515,118 @@ function CompareTab() {
   )
 }
 
+// ─── ANOMALIES TAB ───────────────────────────────────────────────
+function AnomaliesTab() {
+  const [anomalies, setAnomalies] = useState<Snapshot[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<Snapshot | null>(null)
+
+  useEffect(() => {
+    async function load() {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/network_snapshots?select=*&anomaly=eq.true&order=created_at.desc`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      )
+      const data = await res.json()
+      setAnomalies(Array.isArray(data) ? data : [])
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>Anomaly Log</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>All network anomalies detected and recorded automatically</div>
+        </div>
+        <div style={{ fontSize: 13, color: '#64748b' }}>
+          {anomalies.length} anomal{anomalies.length === 1 ? 'y' : 'ies'} recorded
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '3rem' }}>Loading anomaly log...</div>
+      ) : anomalies.length === 0 ? (
+        <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '3rem', textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
+          <div style={{ fontSize: 15, fontWeight: 500, color: '#1D9E75', marginBottom: 6 }}>No anomalies detected</div>
+          <div style={{ fontSize: 13, color: '#475569' }}>The Arc testnet has been running smoothly. All recorded snapshots are within normal parameters.</div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 12 }}>
+          {/* List */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {anomalies.map(a => {
+              const isCritical = (a as any).anomaly_severity === 'critical'
+              const color = isCritical ? '#ef4444' : '#EF9F27'
+              return (
+                <div key={a.id} onClick={() => setSelected(a)}
+                  style={{ background: selected?.id === a.id ? '#1a1010' : '#13131a', border: `1px solid ${selected?.id === a.id ? color : '#1e1e2e'}`, borderRadius: 10, padding: '0.875rem 1rem', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color, background: `${color}22`, padding: '2px 8px', borderRadius: 6, textTransform: 'uppercase' }}>
+                      {(a as any).anomaly_severity ?? 'anomaly'}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#475569' }}>Score: {(a as any).health_score ?? '—'}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: '#f1f5f9', fontWeight: 500 }}>{a.created_at.slice(0, 10)}</div>
+                  <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>{a.created_at.slice(11, 19)} UTC</div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Detail */}
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
+            {!selected ? (
+              <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', marginTop: '3rem' }}>← Select an anomaly to view details</div>
+            ) : (() => {
+              const isCritical = (selected as any).anomaly_severity === 'critical'
+              const color = isCritical ? '#ef4444' : '#EF9F27'
+              const score = (selected as any).health_score ?? 0
+              return (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: '#f1f5f9' }}>Anomaly Report</div>
+                      <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>{selected.created_at.slice(0, 19).replace('T', ' ')} UTC</div>
+                    </div>
+                    <span style={{ fontSize: 13, color, background: `${color}22`, padding: '4px 12px', borderRadius: 8, textTransform: 'uppercase', fontWeight: 600 }}>
+                      {(selected as any).anomaly_severity ?? 'anomaly'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: '1.25rem' }}>
+                    <MetricCard label="Health Score" value={score} unit="at detection" color={color} />
+                    <MetricCard label="Block time" value={`${selected.block_time_avg}s`} unit="seconds" color="#378ADD" />
+                    <MetricCard label="RPC latency" value={`${selected.rpc_latency}ms`} unit="milliseconds" color="#A78BFA" />
+                    <MetricCard label="Gas price" value={`${selected.gas_price}`} unit="gwei" color="#EF9F27" />
+                  </div>
+
+                  <div style={{ background: '#0a0a0f', borderRadius: 8, padding: '1rem', fontSize: 13, color: '#94a3b8', lineHeight: 1.8 }}>
+                    <strong style={{ color: '#f1f5f9' }}>Anomaly Analysis</strong><br />
+                    A <strong style={{ color }}>{(selected as any).anomaly_severity}</strong> anomaly was detected on{' '}
+                    <strong style={{ color: '#f1f5f9' }}>{selected.created_at.slice(0, 10)}</strong> at{' '}
+                    <strong style={{ color: '#f1f5f9' }}>{selected.created_at.slice(11, 19)} UTC</strong>.{' '}
+                    The network health score dropped to <strong style={{ color }}>{score}/100</strong>.{' '}
+                    {selected.block_time_avg > 1
+                      ? `Block time was elevated at ${selected.block_time_avg}s, above the sub-second target. `
+                      : `Block time was ${selected.block_time_avg}s, within acceptable range. `}
+                    {selected.rpc_latency > 400
+                      ? `RPC latency was high at ${selected.rpc_latency}ms, indicating network stress.`
+                      : `RPC latency was ${selected.rpc_latency}ms.`}
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── NETWORK SCORE ────────────────────────────────────────────────
 function calcScore(blockTime: number, latency: number, gasStability: number) {
   if (blockTime === 0 && latency === 0) return null
@@ -534,7 +646,7 @@ function scoreLabel(score: number | null) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function Home() {
-  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies'>('dashboard')
   const { data } = useArcData()
 
   const score = calcScore(data.avgBlockTime, data.rpcLatency, 1)
@@ -545,6 +657,7 @@ export default function Home() {
     { id: 'dashboard', label: '📊 Dashboard' },
     { id: 'reports', label: '📋 Reports' },
     { id: 'compare', label: '⚖️ Compare' },
+    { id: 'anomalies', label: '⚠️ Anomalies' },
   ] as const
 
   return (
@@ -594,6 +707,7 @@ export default function Home() {
       {tab === 'dashboard' && <DashboardTab />}
       {tab === 'reports' && <ReportsTab />}
       {tab === 'compare' && <CompareTab />}
+      {tab === 'anomalies' && <AnomaliesTab />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem', fontSize: 11, color: '#334155' }}>
         <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002</span>

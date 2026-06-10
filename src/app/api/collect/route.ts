@@ -22,6 +22,18 @@ async function rpcCall(method: string, params: unknown[] = []) {
 
 const hexToNum = (h: string) => parseInt(h, 16)
 
+function calcScore(blockTime: number, latency: number) {
+  const blockScore = blockTime <= 0.5 ? 100 : blockTime <= 1 ? 85 : blockTime <= 2 ? 60 : 30
+  const latencyScore = latency <= 200 ? 100 : latency <= 400 ? 80 : latency <= 700 ? 55 : 25
+  return Math.round(blockScore * 0.4 + latencyScore * 0.35 + 100 * 0.25)
+}
+
+function getSeverity(score: number): string | null {
+  if (score < 50) return 'critical'
+  if (score < 70) return 'warning'
+  return null
+}
+
 export async function GET() {
   try {
     const { result: blockHex, latency } = await rpcCall('eth_blockNumber')
@@ -45,6 +57,9 @@ export async function GET() {
     }
     const avgBlockTime = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : 0
 
+    const score = calcScore(avgBlockTime, latency)
+    const severity = getSeverity(score)
+
     const { error } = await supabase.from('network_snapshots').insert({
       block_number: latest,
       block_time_avg: parseFloat(avgBlockTime.toFixed(3)),
@@ -52,11 +67,14 @@ export async function GET() {
       rpc_latency: latency,
       tx_count: totalTx,
       chain_id: hexToNum(chainHex),
+      health_score: score,
+      anomaly: severity !== null,
+      anomaly_severity: severity,
     })
 
     if (error) throw error
 
-    return NextResponse.json({ success: true, block: latest })
+    return NextResponse.json({ success: true, block: latest, score, anomaly: severity !== null, severity })
   } catch (e) {
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 })
   }
