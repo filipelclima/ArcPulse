@@ -537,8 +537,8 @@ function AnomaliesTab() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-        <div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>Anomaly Log</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <img src="/Anomalies_Logo.png" alt="Anomalies" style={{ height: 64, width: 'auto' }} />
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>All network anomalies detected and recorded automatically</div>
         </div>
         <div style={{ fontSize: 13, color: '#64748b' }}>
