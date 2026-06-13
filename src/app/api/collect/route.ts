@@ -61,6 +61,7 @@ export async function GET() {
     const severity = getSeverity(score)
 
     const { error } = await supabase.from('network_snapshots').insert({
+      created_at: new Date().toISOString(),
       block_number: latest,
       block_time_avg: parseFloat(avgBlockTime.toFixed(3)),
       gas_price: parseFloat((hexToNum(gasHex) / 1e9).toFixed(4)),
