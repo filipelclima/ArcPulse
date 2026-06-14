@@ -718,11 +718,136 @@ function NetworkStatusTab() {
           </div>
         )}
       </div>
+
+      {/* Gas Estimator */}
+      <GasEstimator />
     </div>
   )
 }
 
-// ─── COMPARE TAB ─────────────────────────────────────────────────
+// ─── GAS ESTIMATOR ───────────────────────────────────────────────
+const GAS_OPERATIONS = [
+  { label: 'Simple ETH Transfer', gas: 21000, description: 'Basic transfer between wallets' },
+  { label: 'ERC-20 Token Transfer', gas: 65000, description: 'Transfer an ERC-20 token' },
+  { label: 'ERC-20 Token Approval', gas: 46000, description: 'Approve a token spender' },
+  { label: 'Uniswap / DEX Swap', gas: 150000, description: 'Swap tokens on a DEX' },
+  { label: 'NFT Mint', gas: 120000, description: 'Mint a single NFT' },
+  { label: 'Smart Contract Deploy (Simple)', gas: 300000, description: 'Deploy a basic contract' },
+  { label: 'Smart Contract Deploy (Complex)', gas: 1500000, description: 'Deploy a complex contract with logic' },
+  { label: 'Contract Function Call', gas: 80000, description: 'Call a smart contract function' },
+  { label: 'Multisig Transaction', gas: 200000, description: 'Execute a multisig operation' },
+]
+
+function GasEstimator() {
+  const [selectedOp, setSelectedOp] = useState(0)
+  const [gasPrice, setGasPrice] = useState<number | null>(null)
+  const [customGas, setCustomGas] = useState('')
+
+  useEffect(() => {
+    rpcCall('eth_gasPrice').then(hex => {
+      if (hex) setGasPrice(parseInt(hex, 16) / 1e9)
+    })
+  }, [])
+
+  const op = GAS_OPERATIONS[selectedOp]
+  const gasLimit = customGas ? parseInt(customGas) : op.gas
+  const gasPriceGwei = gasPrice ?? 20
+  const costGwei = gasLimit * gasPriceGwei
+  const costUSDC = (costGwei / 1e9).toFixed(8)
+  const costUSDCDisplay = parseFloat(costUSDC) < 0.000001
+    ? '< $0.000001'
+    : `$${parseFloat(costUSDC).toFixed(6)}`
+
+  return (
+    <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem', marginTop: '1.25rem' }}>
+      <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>
+        ⛽ Gas Estimator — Cost in USDC
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1rem' }}>
+        {/* Operation selector */}
+        <div>
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Select operation</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {GAS_OPERATIONS.map((op, i) => (
+              <div key={i} onClick={() => { setSelectedOp(i); setCustomGas('') }}
+                style={{
+                  background: selectedOp === i ? '#1a2a1a' : '#0a0a0f',
+                  border: `1px solid ${selectedOp === i ? '#1D9E75' : '#1e1e2e'}`,
+                  borderRadius: 8, padding: '8px 12px', cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                }}>
+                <div>
+                  <div style={{ fontSize: 13, color: '#f1f5f9', fontWeight: selectedOp === i ? 500 : 400 }}>{op.label}</div>
+                  <div style={{ fontSize: 11, color: '#475569', marginTop: 1 }}>{op.description}</div>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', marginLeft: 8, flexShrink: 0 }}>
+                  {op.gas.toLocaleString()} gas
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Result */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ background: '#0a0a0f', borderRadius: 10, padding: '1.25rem', border: '1px solid #1D9E7544' }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Estimated cost</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: '#1D9E75' }}>{costUSDCDisplay}</div>
+            <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>paid in USDC</div>
+          </div>
+
+          <div style={{ background: '#0a0a0f', borderRadius: 10, padding: '1rem', border: '1px solid #1e1e2e' }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>Calculation breakdown</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#475569' }}>Gas limit</span>
+                <span style={{ color: '#f1f5f9', fontFamily: 'monospace' }}>{gasLimit.toLocaleString()}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#475569' }}>Gas price</span>
+                <span style={{ color: '#EF9F27', fontFamily: 'monospace' }}>{gasPriceGwei.toFixed(4)} gwei</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#475569' }}>Total gas cost</span>
+                <span style={{ color: '#f1f5f9', fontFamily: 'monospace' }}>{costGwei.toLocaleString()} gwei</span>
+              </div>
+              <div style={{ borderTop: '1px solid #1e1e2e', paddingTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#475569' }}>Cost in USDC</span>
+                <span style={{ color: '#1D9E75', fontWeight: 600, fontFamily: 'monospace' }}>{costUSDCDisplay}</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: '#0a0a0f', borderRadius: 10, padding: '1rem', border: '1px solid #1e1e2e' }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Custom gas limit</div>
+            <input
+              type="number"
+              placeholder="e.g. 500000"
+              value={customGas}
+              onChange={e => setCustomGas(e.target.value)}
+              style={{
+                width: '100%', background: '#13131a', border: '1px solid #1e1e2e',
+                borderRadius: 8, padding: '8px 12px', color: '#f1f5f9', fontSize: 13,
+                outline: 'none', boxSizing: 'border-box'
+              }}
+            />
+            <div style={{ fontSize: 11, color: '#334155', marginTop: 6 }}>
+              Override with your contract's actual gas usage
+            </div>
+          </div>
+
+          <div style={{ background: '#0c1a0c', borderRadius: 10, padding: '1rem', border: '1px solid #1D9E7522' }}>
+            <div style={{ fontSize: 12, color: '#1D9E75', fontWeight: 500, marginBottom: 4 }}>💡 Arc Advantage</div>
+            <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.6 }}>
+              Gas is paid in USDC — no exposure to token volatility. The price you see is the price you pay, regardless of market conditions.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 function CompareTab() {
   const [periodA, setPeriodA] = useState({ from: '', to: '' })
   const [periodB, setPeriodB] = useState({ from: '', to: '' })
