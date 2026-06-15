@@ -1,6 +1,7 @@
 'use client'
 import { useArcData } from './useArcData'
 import { useState, useEffect } from 'react'
+import { ConnectButton, DevDashboardTab } from './DevDashboard'
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -1112,7 +1113,7 @@ function scoreLabel(score: number | null) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function Home() {
-  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev'>('dashboard')
   const { data } = useArcData()
 
   const score = calcScore(data.avgBlockTime, data.rpcLatency, 1)
@@ -1125,6 +1126,7 @@ export default function Home() {
     { id: 'compare', label: '⚖️ Compare' },
     { id: 'anomalies', label: '⚠️ Anomalies' },
     { id: 'status', label: '⚡ Network Status' },
+    { id: 'dev', label: '👨‍💻 Dev Dashboard' },
   ] as const
 
   return (
@@ -1150,10 +1152,13 @@ export default function Home() {
         </div>
 
         {/* Network Score */}
-        <div style={{ background: bg, border: `1px solid ${color}44`, borderRadius: 12, padding: '10px 18px', textAlign: 'center', minWidth: 110 }}>
-          <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Health Score</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{score ?? '—'}</div>
-          <div style={{ fontSize: 11, color, marginTop: 3, fontWeight: 500 }}>{label}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <ConnectButton />
+          <div style={{ background: bg, border: `1px solid ${color}44`, borderRadius: 12, padding: '10px 18px', textAlign: 'center', minWidth: 110 }}>
+            <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Health Score</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{score ?? '—'}</div>
+            <div style={{ fontSize: 11, color, marginTop: 3, fontWeight: 500 }}>{label}</div>
+          </div>
         </div>
       </div>
 
@@ -1176,6 +1181,7 @@ export default function Home() {
       {tab === 'compare' && <CompareTab />}
       {tab === 'anomalies' && <AnomaliesTab />}
       {tab === 'status' && <NetworkStatusTab />}
+      {tab === 'dev' && <DevDashboardTab />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem', fontSize: 11, color: '#334155' }}>
         <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002</span>
