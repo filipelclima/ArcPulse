@@ -45,8 +45,8 @@ interface DevStats {
 type WalletType = 'metamask' | 'rabby' | 'injected' | null
 
 function detectWallet(): WalletType {
-  if (typeof window === 'undefined' || !window.ethereum) return null
-  const eth = window.ethereum as any
+  if (typeof window === 'undefined' || !(window as any).ethereum) return null
+  const eth = (window as any).ethereum
   if (eth.isRabby) return 'rabby'
   if (eth.isMetaMask) return 'metamask'
   return 'injected'
