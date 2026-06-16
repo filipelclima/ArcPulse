@@ -1,7 +1,6 @@
 'use client'
 import { useArcData } from './useArcData'
 import { useState, useEffect } from 'react'
-import { ConnectButton, DevDashboardTab } from './DevDashboard'
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -327,6 +326,57 @@ function ReportsTab() {
           <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>since first snapshot</div>
         </div>
       </div>
+
+      {/* Uptime History Chart */}
+      {(() => {
+        const allDays = Object.keys(groupByDay(snapshots)).sort()
+        const uptimeHistory = allDays.map(day => {
+          const snaps = groupByDay(snapshots)[day]
+          const healthy = snaps.filter(s => !(s as any).anomaly).length
+          const uptime = parseFloat(((healthy / snaps.length) * 100).toFixed(1))
+          const avgScoreDay = Math.round(snaps.reduce((a, s) => a + ((s as any).health_score ?? 75), 0) / snaps.length)
+          return { day: day.slice(5), uptime, score: avgScoreDay, snaps: snaps.length }
+        })
+
+        if (uptimeHistory.length < 2) return null
+
+        return (
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+              Uptime history — by day
+            </div>
+            <div style={{ fontSize: 11, color: '#334155', marginBottom: 12 }}>
+              Network uptime % and average health score per day
+            </div>
+            <ResponsiveContainer width="100%" height={160}>
+              <LineChart data={uptimeHistory}>
+                <CartesianGrid stroke="#1e1e2e" strokeDasharray="3 3" />
+                <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#475569' }} tickLine={false} axisLine={false} width={32} tickFormatter={v => `${v}%`} />
+                <Tooltip
+                  contentStyle={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 8, fontSize: 12 }}
+                  formatter={(value: number, name: string) => [
+                    name === 'uptime' ? `${value}%` : value,
+                    name === 'uptime' ? 'Uptime' : 'Health Score'
+                  ]}
+                />
+                <Line type="monotone" dataKey="uptime" stroke="#1D9E75" strokeWidth={2} dot={{ r: 4, fill: '#1D9E75' }} />
+                <Line type="monotone" dataKey="score" stroke="#A78BFA" strokeWidth={2} dot={{ r: 4, fill: '#A78BFA' }} strokeDasharray="4 2" />
+              </LineChart>
+            </ResponsiveContainer>
+            <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 11, color: '#64748b' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 12, height: 2, background: '#1D9E75', display: 'inline-block', borderRadius: 2 }} />
+                Uptime %
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 12, height: 2, background: '#A78BFA', display: 'inline-block', borderRadius: 2 }} />
+                Health Score
+              </span>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Filter bar */}
       <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1113,7 +1163,7 @@ function scoreLabel(score: number | null) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function Home() {
-  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status'>('dashboard')
   const { data } = useArcData()
 
   const score = calcScore(data.avgBlockTime, data.rpcLatency, 1)
@@ -1126,7 +1176,6 @@ export default function Home() {
     { id: 'compare', label: '⚖️ Compare' },
     { id: 'anomalies', label: '⚠️ Anomalies' },
     { id: 'status', label: '⚡ Network Status' },
-    { id: 'dev', label: '👨‍💻 Dev Dashboard' },
   ] as const
 
   return (
@@ -1152,13 +1201,10 @@ export default function Home() {
         </div>
 
         {/* Network Score */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <ConnectButton />
-          <div style={{ background: bg, border: `1px solid ${color}44`, borderRadius: 12, padding: '10px 18px', textAlign: 'center', minWidth: 110 }}>
-            <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Health Score</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{score ?? '—'}</div>
-            <div style={{ fontSize: 11, color, marginTop: 3, fontWeight: 500 }}>{label}</div>
-          </div>
+        <div style={{ background: bg, border: `1px solid ${color}44`, borderRadius: 12, padding: '10px 18px', textAlign: 'center', minWidth: 110 }}>
+          <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Health Score</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{score ?? '—'}</div>
+          <div style={{ fontSize: 11, color, marginTop: 3, fontWeight: 500 }}>{label}</div>
         </div>
       </div>
 
@@ -1181,7 +1227,6 @@ export default function Home() {
       {tab === 'compare' && <CompareTab />}
       {tab === 'anomalies' && <AnomaliesTab />}
       {tab === 'status' && <NetworkStatusTab />}
-      {tab === 'dev' && <DevDashboardTab />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem', fontSize: 11, color: '#334155' }}>
         <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002</span>
