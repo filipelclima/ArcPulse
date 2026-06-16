@@ -509,6 +509,138 @@ function ReportsTab() {
   )
 }
 
+// ─── TX TYPE BREAKDOWN ───────────────────────────────────────────
+interface TxType {
+  label: string
+  count: number
+  color: string
+  icon: string
+  description: string
+}
+
+function TxTypeBreakdown() {
+  const [types, setTypes] = useState<TxType[]>([])
+  const [loading, setLoading] = useState(true)
+  const [total, setTotal] = useState(0)
+  const [blocksScanned, setBlocksScanned] = useState(0)
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      try {
+        const blockHex = await rpcCall('eth_blockNumber')
+        const latest = hexToNum(blockHex)
+        const scanCount = 30
+
+        const blockNums = Array.from({ length: scanCount }, (_, i) => latest - scanCount + 1 + i)
+        const blocks = await Promise.all(
+          blockNums.map(n =>
+            rpcCall('eth_getBlockByNumber', ['0x' + n.toString(16), true])
+          )
+        )
+
+        let transfers = 0
+        let contractCalls = 0
+        let contractDeploys = 0
+        let tokenTransfers = 0
+        let totalTx = 0
+
+        for (const block of blocks) {
+          if (!block?.transactions) continue
+          for (const tx of block.transactions) {
+            totalTx++
+            const input = tx.input ?? tx.data ?? '0x'
+            const isContractDeploy = !tx.to
+            const isTokenTransfer = input.startsWith('0xa9059cbb') || input.startsWith('0x23b872dd')
+            const isContractCall = tx.to && input !== '0x' && input.length > 2 && !isTokenTransfer
+            const isTransfer = tx.to && (input === '0x' || input === '0x0' || input.length <= 2)
+
+            if (isContractDeploy) contractDeploys++
+            else if (isTokenTransfer) tokenTransfers++
+            else if (isContractCall) contractCalls++
+            else if (isTransfer) transfers++
+            else contractCalls++ // fallback
+          }
+        }
+
+        setTotal(totalTx)
+        setBlocksScanned(scanCount)
+        setTypes([
+          { label: 'ETH/Token Transfer', count: transfers, color: '#1D9E75', icon: '💸', description: 'Simple value transfers between wallets' },
+          { label: 'Token Transfer (ERC-20)', count: tokenTransfers, color: '#378ADD', icon: '🪙', description: 'ERC-20 token transfers via transfer()' },
+          { label: 'Contract Call', count: contractCalls, color: '#A78BFA', icon: '⚙️', description: 'Interactions with deployed contracts' },
+          { label: 'Contract Deploy', count: contractDeploys, color: '#EF9F27', icon: '📄', description: 'New smart contracts deployed' },
+        ])
+      } catch (e) {
+        console.error(e)
+      }
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  return (
+    <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem', marginBottom: '1.25rem' }}>
+      <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+        Transaction Type Breakdown
+      </div>
+      <div style={{ fontSize: 11, color: '#334155', marginBottom: '1rem' }}>
+        Last {blocksScanned} blocks · {total.toLocaleString()} total transactions
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: '#475569' }}>Analyzing transaction types...</div>
+      ) : (
+        <>
+          {/* Bar chart visual */}
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', height: 24, borderRadius: 8, overflow: 'hidden', gap: 2 }}>
+              {types.filter(t => t.count > 0).map((t, i) => (
+                <div key={i} style={{
+                  width: `${(t.count / total) * 100}%`,
+                  background: t.color,
+                  minWidth: t.count > 0 ? 4 : 0,
+                  transition: 'width 0.5s ease',
+                }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Type list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {types.map((t, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 3, background: t.color, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                    <span style={{ fontSize: 13, color: '#f1f5f9' }}>{t.icon} {t.label}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>{t.count.toLocaleString()}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: t.color, minWidth: 40, textAlign: 'right' }}>
+                        {total > 0 ? ((t.count / total) * 100).toFixed(1) : 0}%
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ background: '#1e1e2e', borderRadius: 4, height: 4, overflow: 'hidden' }}>
+                    <div style={{
+                      background: t.color,
+                      height: '100%',
+                      width: total > 0 ? `${(t.count / total) * 100}%` : '0%',
+                      borderRadius: 4,
+                      transition: 'width 0.5s ease',
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: '#334155', marginTop: 2 }}>{t.description}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── NETWORK STATUS TAB ──────────────────────────────────────────
 const RPC_ENDPOINTS = [
   { name: 'Primary RPC', url: 'https://rpc.testnet.arc.network' },
@@ -703,6 +835,9 @@ function NetworkStatusTab() {
           <div style={{ fontSize: 13, color: '#ef4444' }}>Failed to load transaction data.</div>
         )}
       </div>
+
+      {/* Transaction Type Breakdown */}
+      <TxTypeBreakdown />
 
       {/* RPC Endpoint Status */}
       <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
