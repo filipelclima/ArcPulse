@@ -1280,6 +1280,219 @@ function AnomaliesTab() {
   )
 }
 
+// ─── NETWORK COMPARISON TAB ──────────────────────────────────────
+interface NetworkData {
+  name: string
+  blockTime: number | null
+  gasGwei: number | null
+  latency: number | null
+  color: string
+  rpc: string
+  isArc?: boolean
+}
+
+const NETWORKS: NetworkData[] = [
+  { name: 'Arc Testnet', blockTime: null, gasGwei: null, latency: null, color: '#1D9E75', rpc: 'https://rpc.testnet.arc.network', isArc: true },
+  { name: 'Ethereum', blockTime: null, gasGwei: null, latency: null, color: '#627EEA', rpc: 'https://ethereum.publicnode.com' },
+  { name: 'Polygon', blockTime: null, gasGwei: null, latency: null, color: '#8247E5', rpc: 'https://polygon.publicnode.com' },
+  { name: 'BNB Chain', blockTime: null, gasGwei: null, latency: null, color: '#F3BA2F', rpc: 'https://bsc.publicnode.com' },
+  { name: 'Arbitrum', blockTime: null, gasGwei: null, latency: null, color: '#28A0F0', rpc: 'https://arbitrum-one.publicnode.com' },
+]
+
+async function fetchNetworkData(network: NetworkData): Promise<NetworkData> {
+  try {
+    const t0 = Date.now()
+    const res = await fetch(network.rpc, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
+    })
+    const latency = Date.now() - t0
+    const data = await res.json()
+    const latest = parseInt(data.result, 16)
+
+    // Get gas price
+    const gasRes = await fetch(network.rpc, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'eth_gasPrice', params: [] }),
+    })
+    const gasData = await gasRes.json()
+    const gasGwei = parseInt(gasData.result, 16) / 1e9
+
+    // Get last 5 blocks for avg block time
+    const blockNums = Array.from({ length: 5 }, (_, i) => latest - 4 + i)
+    const blocks = await Promise.all(blockNums.map(async n => {
+      const r = await fetch(network.rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'eth_getBlockByNumber', params: ['0x' + n.toString(16), false] }),
+      })
+      const d = await r.json()
+      return d.result
+    }))
+
+    const times: number[] = []
+    for (let i = 1; i < blocks.length; i++) {
+      if (blocks[i] && blocks[i-1]) {
+        times.push(parseInt(blocks[i].timestamp, 16) - parseInt(blocks[i-1].timestamp, 16))
+      }
+    }
+    const avgBlockTime = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : null
+
+    return { ...network, blockTime: avgBlockTime, gasGwei: parseFloat(gasGwei.toFixed(2)), latency }
+  } catch {
+    return { ...network, blockTime: null, gasGwei: null, latency: null }
+  }
+}
+
+function ComparisonBar({ value, max, color, unit }: { value: number | null; max: number; color: string; unit: string }) {
+  if (value === null) return <div style={{ fontSize: 12, color: '#334155' }}>N/A</div>
+  const pct = Math.min((value / max) * 100, 100)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ flex: 1, background: '#1e1e2e', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+        <div style={{ background: color, height: '100%', width: `${pct}%`, borderRadius: 4 }} />
+      </div>
+      <span style={{ fontSize: 12, color: '#f1f5f9', fontFamily: 'monospace', minWidth: 60, textAlign: 'right' }}>
+        {value}{unit}
+      </span>
+    </div>
+  )
+}
+
+function NetworkComparisonTab() {
+  const [networks, setNetworks] = useState<NetworkData[]>(NETWORKS)
+  const [loading, setLoading] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+
+  async function loadAll() {
+    setLoading(true)
+    const results = await Promise.all(NETWORKS.map(fetchNetworkData))
+    setNetworks(results)
+    setLastUpdated(new Date())
+    setLoading(false)
+  }
+
+  useEffect(() => { loadAll() }, [])
+
+  const maxBlockTime = Math.max(...networks.map(n => n.blockTime ?? 0), 15)
+  const maxGas = Math.max(...networks.map(n => n.gasGwei ?? 0), 50)
+  const maxLatency = Math.max(...networks.map(n => n.latency ?? 0), 500)
+
+  const arc = networks.find(n => n.isArc)
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>Network Comparison</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Arc Testnet vs major EVM networks — real-time data</div>
+        </div>
+        <button onClick={loadAll} disabled={loading}
+          style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #1e1e2e', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
+          ↻ Refresh
+        </button>
+      </div>
+
+      {/* Arc highlight */}
+      {arc && !loading && (
+        <div style={{ background: '#0d2b1f', border: '1px solid #1D9E75', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, color: '#1D9E75', fontWeight: 600, marginBottom: 4, width: '100%' }}>
+            ⚡ Arc Testnet Performance
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#1D9E75' }}>{arc.blockTime?.toFixed(2) ?? '—'}s</div>
+            <div style={{ fontSize: 11, color: '#475569' }}>Block time</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#EF9F27' }}>{arc.gasGwei ?? '—'} gwei</div>
+            <div style={{ fontSize: 11, color: '#475569' }}>Gas price (USDC)</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#A78BFA' }}>{arc.latency ?? '—'}ms</div>
+            <div style={{ fontSize: 11, color: '#475569' }}>RPC latency</div>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '3rem' }}>
+          Fetching data from {NETWORKS.length} networks...
+        </div>
+      ) : (
+        <>
+          {/* Block Time */}
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem', marginBottom: '1rem' }}>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>
+              ⏱ Block Time — lower is faster
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {[...networks].sort((a, b) => (a.blockTime ?? 999) - (b.blockTime ?? 999)).map((n, i) => (
+                <div key={n.name}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 13, color: n.isArc ? '#1D9E75' : '#f1f5f9', fontWeight: n.isArc ? 600 : 400 }}>
+                      {n.isArc ? '⚡ ' : ''}{n.name} {i === 0 && '🏆'}
+                    </span>
+                  </div>
+                  <ComparisonBar value={n.blockTime !== null ? parseFloat(n.blockTime.toFixed(2)) : null} max={maxBlockTime} color={n.color} unit="s" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Gas Price */}
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem', marginBottom: '1rem' }}>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>
+              ⛽ Gas Price (gwei) — lower is cheaper
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {[...networks].sort((a, b) => (a.gasGwei ?? 999) - (b.gasGwei ?? 999)).map((n, i) => (
+                <div key={n.name}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 13, color: n.isArc ? '#1D9E75' : '#f1f5f9', fontWeight: n.isArc ? 600 : 400 }}>
+                      {n.isArc ? '⚡ ' : ''}{n.name} {i === 0 && '🏆'}
+                    </span>
+                  </div>
+                  <ComparisonBar value={n.gasGwei} max={maxGas} color={n.color} unit=" gwei" />
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: '#334155', marginTop: 10 }}>
+              * Arc gas is paid in USDC — no token volatility exposure
+            </div>
+          </div>
+
+          {/* RPC Latency */}
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>
+              📡 RPC Latency (ms) — lower is better
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {[...networks].sort((a, b) => (a.latency ?? 999) - (b.latency ?? 999)).map((n, i) => (
+                <div key={n.name}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 13, color: n.isArc ? '#1D9E75' : '#f1f5f9', fontWeight: n.isArc ? 600 : 400 }}>
+                      {n.isArc ? '⚡ ' : ''}{n.name} {i === 0 && '🏆'}
+                    </span>
+                  </div>
+                  <ComparisonBar value={n.latency} max={maxLatency} color={n.color} unit="ms" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {lastUpdated && (
+            <div style={{ fontSize: 11, color: '#334155', marginTop: '1rem', textAlign: 'right' }}>
+              Last updated: {lastUpdated.toLocaleTimeString()} · Data from public RPC endpoints
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── NETWORK SCORE ────────────────────────────────────────────────
 function calcScore(blockTime: number, latency: number, gasStability: number) {
   if (blockTime === 0 && latency === 0) return null
@@ -1299,7 +1512,7 @@ function scoreLabel(score: number | null) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function Home() {
-  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev' | 'networks'>('dashboard')
   const { data } = useArcData()
 
   const score = calcScore(data.avgBlockTime, data.rpcLatency, 1)
@@ -1313,6 +1526,7 @@ export default function Home() {
     { id: 'anomalies', label: '⚠️ Anomalies' },
     { id: 'status', label: '⚡ Network Status' },
     { id: 'dev', label: '👨‍💻 Dev Dashboard' },
+    { id: 'networks', label: '🌐 Networks' },
   ] as const
 
   return (
@@ -1368,6 +1582,7 @@ export default function Home() {
       {tab === 'anomalies' && <AnomaliesTab />}
       {tab === 'status' && <NetworkStatusTab />}
       {tab === 'dev' && <DevDashboardTab />}
+      {tab === 'networks' && <NetworkComparisonTab />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem', fontSize: 11, color: '#334155' }}>
         <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002</span>
