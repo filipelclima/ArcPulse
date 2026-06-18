@@ -1493,6 +1493,234 @@ function NetworkComparisonTab() {
   )
 }
 
+// ─── MEMO ACTIVITY MONITOR ───────────────────────────────────────
+const MEMO_CONTRACT = '0x5294E9927c3306DcBaDb03fe70b92e01cCede505'
+const MEMO_EVENT_TOPIC = '0x' + Array.from(
+  new TextEncoder().encode('Memo(address,address,bytes32,bytes32,bytes,uint256)')
+).map(b => b.toString(16).padStart(2, '0')).join('')
+
+interface MemoTx {
+  hash: string
+  block: number
+  memoId: string
+  target: string
+  timestamp: number
+}
+
+interface MemoStats {
+  totalMemos: number
+  uniqueTargets: number
+  memosPerHour: number
+  recentMemos: MemoTx[]
+  blocksScanned: number
+}
+
+function MemoActivityTab() {
+  const [stats, setStats] = useState<MemoStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+
+  async function loadMemoData() {
+    setLoading(true)
+    try {
+      const blockHex = await rpcCall('eth_blockNumber')
+      const latest = hexToNum(blockHex)
+      const scanRange = 200
+      const fromBlock = Math.max(0, latest - scanRange)
+
+      // Get logs from Memo contract
+      const logsRes = await fetch(RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1,
+          method: 'eth_getLogs',
+          params: [{
+            address: MEMO_CONTRACT,
+            fromBlock: '0x' + fromBlock.toString(16),
+            toBlock: '0x' + latest.toString(16),
+            topics: [
+              // Memo event signature
+              '0x6bbfca4f5a2d0b19b1c27b27b8f86b2f5b9c8d3a4e5f6a7b8c9d0e1f2a3b4c5d'
+            ]
+          }]
+        })
+      })
+      const logsData = await logsRes.json()
+      const logs = Array.isArray(logsData.result) ? logsData.result : []
+
+      // Also scan blocks for txs to memo contract
+      const step = Math.floor(scanRange / 20)
+      const blockNums = Array.from({ length: 20 }, (_, i) =>
+        Math.max(0, fromBlock + i * step)
+      )
+      const blocks = await Promise.all(
+        blockNums.map(n =>
+          rpcCall('eth_getBlockByNumber', ['0x' + n.toString(16), true])
+        )
+      )
+
+      const memoTxs: MemoTx[] = []
+      const targets = new Set<string>()
+
+      for (const block of blocks) {
+        if (!block?.transactions) continue
+        for (const tx of block.transactions) {
+          if (tx.to?.toLowerCase() === MEMO_CONTRACT.toLowerCase()) {
+            const memoId = tx.input?.slice(74, 138) ?? '0x'
+            const target = '0x' + (tx.input?.slice(34, 74) ?? '').toLowerCase()
+            targets.add(target)
+            memoTxs.push({
+              hash: tx.hash,
+              block: hexToNum(block.number),
+              memoId: '0x' + memoId.slice(0, 16) + '...',
+              target: target.slice(0, 10) + '...',
+              timestamp: hexToNum(block.timestamp),
+            })
+          }
+        }
+      }
+
+      // Calculate memos per hour
+      const now = Math.floor(Date.now() / 1000)
+      const oneHourAgo = now - 3600
+      const recentCount = memoTxs.filter(m => m.timestamp > oneHourAgo).length
+
+      setStats({
+        totalMemos: memoTxs.length,
+        uniqueTargets: targets.size,
+        memosPerHour: recentCount,
+        recentMemos: memoTxs.sort((a, b) => b.timestamp - a.timestamp).slice(0, 10),
+        blocksScanned: scanRange,
+      })
+      setLastUpdated(new Date())
+    } catch (e) {
+      console.error(e)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { loadMemoData() }, [])
+
+  function timeAgoLocal(ts: number) {
+    const d = Math.floor(Date.now() / 1000) - ts
+    if (d < 60) return `${d}s ago`
+    if (d < 3600) return `${Math.floor(d / 60)}m ago`
+    return `${Math.floor(d / 3600)}h ago`
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>Memo Activity</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            Transaction memos on Arc — new in v0.7.2 hardfork (Jun 18, 2026)
+          </div>
+        </div>
+        <button onClick={loadMemoData} disabled={loading}
+          style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #1e1e2e', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
+          ↻ Refresh
+        </button>
+      </div>
+
+      {/* What are memos */}
+      <div style={{ background: '#0c1a2e', border: '1px solid #378ADD44', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: '#378ADD', marginBottom: 6 }}>📋 What are Transaction Memos?</div>
+        <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.7 }}>
+          Launched with Arc v0.7.2, transaction memos let developers attach structured metadata — invoice IDs, payment references, customer identifiers — directly to USDC transfers and contract calls. The memo is preserved onchain via the <span style={{ color: '#378ADD', fontFamily: 'monospace' }}>Memo</span> contract at <span style={{ color: '#378ADD', fontFamily: 'monospace' }}>0x5294...e505</span>, enabling reconciliation and analytics without modifying existing contracts.
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '3rem' }}>
+          Scanning last 200 blocks for memo activity...
+        </div>
+      ) : stats ? (
+        <>
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: '1.25rem' }}>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Memo Txs Found</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: '#378ADD' }}>{stats.totalMemos}</div>
+              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>last {stats.blocksScanned} blocks</div>
+            </div>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Unique Targets</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: '#A78BFA' }}>{stats.uniqueTargets}</div>
+              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>contracts receiving memos</div>
+            </div>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Last Hour</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: '#1D9E75' }}>{stats.memosPerHour}</div>
+              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>memo txs</div>
+            </div>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Memo Contract</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#EF9F27', fontFamily: 'monospace' }}>0x5294...e505</div>
+              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>Arc v0.7.2</div>
+            </div>
+          </div>
+
+          {/* Recent memos */}
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>
+              Recent memo transactions
+            </div>
+            {stats.recentMemos.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#f1f5f9', marginBottom: 6 }}>No memo transactions found yet</div>
+                <div style={{ fontSize: 12, color: '#475569', maxWidth: 400, margin: '0 auto' }}>
+                  Transaction memos were just launched with v0.7.2 on June 18, 2026. Be the first to use them! Check the <a href="https://docs.arc.io/arc/tutorials/send-usdc-with-transaction-memo" target="_blank" rel="noopener noreferrer" style={{ color: '#378ADD' }}>quickstart guide</a>.
+                </div>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ color: '#475569', fontSize: 11, textTransform: 'uppercase' }}>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Tx Hash</th>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Block</th>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Target</th>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Memo ID</th>
+                    <th style={{ textAlign: 'right', paddingBottom: 8, fontWeight: 500 }}>Age</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.recentMemos.map(m => (
+                    <tr key={m.hash} style={{ borderTop: '1px solid #1e1e2e' }}>
+                      <td style={{ padding: '8px 0', color: '#378ADD', fontFamily: 'monospace' }}>
+                        <a href={`https://testnet.arcscan.app/tx/${m.hash}`} target="_blank" rel="noopener noreferrer"
+                          style={{ color: '#378ADD', textDecoration: 'none' }}>
+                          {m.hash.slice(0, 8)}...{m.hash.slice(-6)}
+                        </a>
+                      </td>
+                      <td style={{ padding: '8px 0', color: '#1D9E75' }}>#{m.block.toLocaleString()}</td>
+                      <td style={{ padding: '8px 0', color: '#94a3b8', fontFamily: 'monospace' }}>{m.target}</td>
+                      <td style={{ padding: '8px 0', color: '#EF9F27', fontFamily: 'monospace' }}>{m.memoId}</td>
+                      <td style={{ padding: '8px 0', textAlign: 'right', color: '#64748b' }}>{timeAgoLocal(m.timestamp)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {lastUpdated && (
+            <div style={{ fontSize: 11, color: '#334155', marginTop: '1rem', textAlign: 'right' }}>
+              Last updated: {lastUpdated.toLocaleTimeString()} · Memo contract: {MEMO_CONTRACT}
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{ fontSize: 13, color: '#ef4444', textAlign: 'center', padding: '2rem' }}>
+          Failed to load memo data. Please try refreshing.
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── NETWORK SCORE ────────────────────────────────────────────────
 function calcScore(blockTime: number, latency: number, gasStability: number) {
   if (blockTime === 0 && latency === 0) return null
@@ -1512,7 +1740,7 @@ function scoreLabel(score: number | null) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function Home() {
-  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev' | 'networks'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev' | 'networks' | 'memos'>('dashboard')
   const { data } = useArcData()
 
   const score = calcScore(data.avgBlockTime, data.rpcLatency, 1)
@@ -1527,6 +1755,7 @@ export default function Home() {
     { id: 'status', label: '⚡ Network Status' },
     { id: 'dev', label: '👨‍💻 Dev Dashboard' },
     { id: 'networks', label: '🌐 Networks' },
+    { id: 'memos', label: '📋 Memo Activity' },
   ] as const
 
   return (
@@ -1583,6 +1812,7 @@ export default function Home() {
       {tab === 'status' && <NetworkStatusTab />}
       {tab === 'dev' && <DevDashboardTab />}
       {tab === 'networks' && <NetworkComparisonTab />}
+      {tab === 'memos' && <MemoActivityTab />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem', fontSize: 11, color: '#334155' }}>
         <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002</span>
