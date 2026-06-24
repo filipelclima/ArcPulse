@@ -1495,9 +1495,13 @@ function NetworkComparisonTab() {
 
 // ─── MEMO ACTIVITY MONITOR ───────────────────────────────────────
 const MEMO_CONTRACT = '0x5294E9927c3306DcBaDb03fe70b92e01cCede505'
-const MEMO_EVENT_TOPIC = '0x' + Array.from(
-  new TextEncoder().encode('Memo(address,address,bytes32,bytes32,bytes,uint256)')
-).map(b => b.toString(16).padStart(2, '0')).join('')
+// Window of recent blocks scanned for memo activity. Arc's sub-1s block time means
+// a narrow window slides out from under recent txs almost immediately, so this is
+// kept wide (~2000 blocks) rather than the old 200-block window.
+const MEMO_SCAN_RANGE = 2000
+// How many blocks we fetch concurrently per round, so we don't fire 2000 parallel
+// requests at the public RPC at once.
+const MEMO_SCAN_BATCH_SIZE = 50
 
 interface MemoTx {
   hash: string
@@ -1525,40 +1529,29 @@ function MemoActivityTab() {
     try {
       const blockHex = await rpcCall('eth_blockNumber')
       const latest = hexToNum(blockHex)
-      const scanRange = 200
+      const scanRange = MEMO_SCAN_RANGE
       const fromBlock = Math.max(0, latest - scanRange)
 
-      // Get logs from Memo contract
-      const logsRes = await fetch(RPC, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0', id: 1,
-          method: 'eth_getLogs',
-          params: [{
-            address: MEMO_CONTRACT,
-            fromBlock: '0x' + fromBlock.toString(16),
-            toBlock: '0x' + latest.toString(16),
-            topics: [
-              // Memo event signature
-              '0x6bbfca4f5a2d0b19b1c27b27b8f86b2f5b9c8d3a4e5f6a7b8c9d0e1f2a3b4c5d'
-            ]
-          }]
-        })
-      })
-      const logsData = await logsRes.json()
-      const logs = Array.isArray(logsData.result) ? logsData.result : []
+      // Scan every block in the range for txs sent to the Memo contract — not a
+      // sparse sample. With sub-1s block times, a handful of test memo txs can
+      // land anywhere in the window, so sampling a fraction of blocks would
+      // mean mostly missing them. We fetch in batches to stay friendly to the
+      // public RPC instead of firing thousands of requests at once.
+      const allBlockNums = Array.from(
+        { length: latest - fromBlock + 1 },
+        (_, i) => fromBlock + i
+      )
 
-      // Also scan blocks for txs to memo contract
-      const step = Math.floor(scanRange / 20)
-      const blockNums = Array.from({ length: 20 }, (_, i) =>
-        Math.max(0, fromBlock + i * step)
-      )
-      const blocks = await Promise.all(
-        blockNums.map(n =>
-          rpcCall('eth_getBlockByNumber', ['0x' + n.toString(16), true])
+      const blocks: any[] = []
+      for (let i = 0; i < allBlockNums.length; i += MEMO_SCAN_BATCH_SIZE) {
+        const chunk = allBlockNums.slice(i, i + MEMO_SCAN_BATCH_SIZE)
+        const chunkResults = await Promise.all(
+          chunk.map(n =>
+            rpcCall('eth_getBlockByNumber', ['0x' + n.toString(16), true]).catch(() => null)
+          )
         )
-      )
+        blocks.push(...chunkResults)
+      }
 
       const memoTxs: MemoTx[] = []
       const targets = new Set<string>()
@@ -1634,7 +1627,7 @@ function MemoActivityTab() {
 
       {loading ? (
         <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '3rem' }}>
-          Scanning last 200 blocks for memo activity...
+          Scanning last {MEMO_SCAN_RANGE} blocks for memo activity... (may take a few seconds)
         </div>
       ) : stats ? (
         <>
