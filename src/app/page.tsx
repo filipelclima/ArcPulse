@@ -6,6 +6,7 @@ import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
+import { decodeFunctionData, parseAbi } from 'viem'
 
 const RPC = 'https://rpc.testnet.arc.network'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -1595,13 +1596,6 @@ function MemoActivityTab() {
 
   useEffect(() => { loadMemoData() }, [])
 
-  function timeAgoLocal(ts: number) {
-    const d = Math.floor(Date.now() / 1000) - ts
-    if (d < 60) return `${d}s ago`
-    if (d < 3600) return `${Math.floor(d / 60)}m ago`
-    return `${Math.floor(d / 3600)}h ago`
-  }
-
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
@@ -1691,7 +1685,7 @@ function MemoActivityTab() {
                       <td style={{ padding: '8px 0', color: '#1D9E75' }}>#{m.block.toLocaleString()}</td>
                       <td style={{ padding: '8px 0', color: '#94a3b8', fontFamily: 'monospace' }}>{m.target}</td>
                       <td style={{ padding: '8px 0', color: '#EF9F27', fontFamily: 'monospace' }}>{m.memoId}</td>
-                      <td style={{ padding: '8px 0', textAlign: 'right', color: '#64748b' }}>{timeAgoLocal(m.timestamp)}</td>
+                      <td style={{ padding: '8px 0', textAlign: 'right', color: '#64748b' }}>{timeAgo(m.timestamp)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1708,6 +1702,311 @@ function MemoActivityTab() {
       ) : (
         <div style={{ fontSize: 13, color: '#ef4444', textAlign: 'center', padding: '2rem' }}>
           Failed to load memo data. Please try refreshing.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── BATCH TRANSACTIONS MONITOR ──────────────────────────────────
+// Arc v0.7.2 also shipped Multicall3From: batches multiple calls into a single
+// tx like the standard Multicall3, but each subcall keeps the original
+// msg.sender (via Arc's CallFrom precompile) instead of appearing to come
+// from the multicall contract itself. Official address from docs.arc.io —
+// note: docs.arc.io/arc/concepts/execution-layer lists a different-looking
+// truncated address for this contract; the one below (from
+// docs.arc.io/arc/references/contract-addresses, the dedicated reference page)
+// is the one that matches real on-chain activity.
+const MULTICALL3FROM_CONTRACT = '0x522fAf9A91c41c443c66765030741e4AaCe147D0'
+const BATCH_SCAN_RANGE = 2000
+const BATCH_SCAN_BATCH_SIZE = 50
+// Rough heuristic for "gas saved by batching": each call folded into a batch
+// avoids paying Ethereum's ~21,000 gas base tx cost again. Not exact (doesn't
+// account for the multicall contract's own loop overhead), but a reasonable
+// order-of-magnitude estimate — labeled as an estimate in the UI.
+const BASE_TX_GAS = 21000
+
+// Standard Multicall3 ABI (aggregate / aggregate3 / aggregate3Value). Decoded
+// with viem instead of manual byte-slicing, since the latter is fragile
+// against ABI layout assumptions.
+const MULTICALL3_ABI = parseAbi([
+  'function aggregate((address target, bytes callData)[] calls) payable returns (uint256 blockNumber, bytes[] returnData)',
+  'function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)',
+  'function aggregate3Value((address target, bool allowFailure, uint256 value, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)',
+])
+
+function decodeMulticallInput(input: string): { functionName: string; targets: string[] } | null {
+  try {
+    const decoded = decodeFunctionData({ abi: MULTICALL3_ABI, data: input as `0x${string}` })
+    const calls = decoded.args[0] as unknown as { target: string }[]
+    return { functionName: decoded.functionName, targets: calls.map(c => c.target) }
+  } catch {
+    return null
+  }
+}
+
+interface BatchTx {
+  hash: string
+  block: number
+  callCount: number
+  targets: string[]
+  timestamp: number
+  gasUsed: number | null
+}
+
+interface BatchStats {
+  totalBatchTxs: number
+  totalCalls: number
+  estGasSaved: number
+  uniqueTargets: number
+  batchesPerHour: number
+  topTargets: { address: string; count: number }[]
+  recentBatches: BatchTx[]
+  blocksScanned: number
+}
+
+function BatchTransactionsTab() {
+  const [stats, setStats] = useState<BatchStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+
+  async function loadBatchData() {
+    setLoading(true)
+    try {
+      const blockHex = await rpcCall('eth_blockNumber')
+      const latest = hexToNum(blockHex)
+      const scanRange = BATCH_SCAN_RANGE
+      const fromBlock = Math.max(0, latest - scanRange)
+
+      // Full contiguous scan (not sampled) — same approach validated on the
+      // Memo Activity tab, batched to stay friendly to the public RPC.
+      const allBlockNums = Array.from(
+        { length: latest - fromBlock + 1 },
+        (_, i) => fromBlock + i
+      )
+
+      const blocks: any[] = []
+      for (let i = 0; i < allBlockNums.length; i += BATCH_SCAN_BATCH_SIZE) {
+        const chunk = allBlockNums.slice(i, i + BATCH_SCAN_BATCH_SIZE)
+        const chunkResults = await Promise.all(
+          chunk.map(n =>
+            rpcCall('eth_getBlockByNumber', ['0x' + n.toString(16), true]).catch(() => null)
+          )
+        )
+        blocks.push(...chunkResults)
+      }
+
+      const batchTxs: BatchTx[] = []
+      const targetCounts = new Map<string, number>()
+
+      for (const block of blocks) {
+        if (!block?.transactions) continue
+        for (const tx of block.transactions) {
+          if (tx.to?.toLowerCase() !== MULTICALL3FROM_CONTRACT.toLowerCase()) continue
+          const decoded = decodeMulticallInput(tx.input)
+          if (!decoded || decoded.targets.length === 0) continue
+
+          for (const t of decoded.targets) {
+            const key = t.toLowerCase()
+            targetCounts.set(key, (targetCounts.get(key) ?? 0) + 1)
+          }
+
+          batchTxs.push({
+            hash: tx.hash,
+            block: hexToNum(block.number),
+            callCount: decoded.targets.length,
+            targets: decoded.targets,
+            timestamp: hexToNum(block.timestamp),
+            gasUsed: null,
+          })
+        }
+      }
+
+      // Fetch actual gasUsed for matched txs only (a small set, not the full
+      // 2000-block range) so the gas-saved estimate is based on real receipts.
+      for (let i = 0; i < batchTxs.length; i += BATCH_SCAN_BATCH_SIZE) {
+        const chunk = batchTxs.slice(i, i + BATCH_SCAN_BATCH_SIZE)
+        const receipts = await Promise.all(
+          chunk.map(b => rpcCall('eth_getTransactionReceipt', [b.hash]).catch(() => null))
+        )
+        receipts.forEach((r, idx) => {
+          if (r?.gasUsed) chunk[idx].gasUsed = hexToNum(r.gasUsed)
+        })
+      }
+
+      const totalCalls = batchTxs.reduce((sum, b) => sum + b.callCount, 0)
+      const estGasSaved = batchTxs.reduce(
+        (sum, b) => sum + Math.max(0, b.callCount - 1) * BASE_TX_GAS,
+        0
+      )
+
+      const now = Math.floor(Date.now() / 1000)
+      const oneHourAgo = now - 3600
+      const recentCount = batchTxs.filter(b => b.timestamp > oneHourAgo).length
+
+      const topTargets = Array.from(targetCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([address, count]) => ({ address, count }))
+
+      setStats({
+        totalBatchTxs: batchTxs.length,
+        totalCalls,
+        estGasSaved,
+        uniqueTargets: targetCounts.size,
+        batchesPerHour: recentCount,
+        topTargets,
+        recentBatches: batchTxs.sort((a, b) => b.timestamp - a.timestamp).slice(0, 10),
+        blocksScanned: scanRange,
+      })
+      setLastUpdated(new Date())
+    } catch (e) {
+      console.error(e)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { loadBatchData() }, [])
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>Batch Transactions</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            Multicall3From activity on Arc — new in v0.7.2 hardfork (Jun 18, 2026)
+          </div>
+        </div>
+        <button onClick={loadBatchData} disabled={loading}
+          style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #1e1e2e', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
+          ↻ Refresh
+        </button>
+      </div>
+
+      {/* What is Multicall3From */}
+      <div style={{ background: '#0c1a2e', border: '1px solid #378ADD44', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: '#378ADD', marginBottom: 6 }}>📦 What are Batch Transactions?</div>
+        <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.7 }}>
+          Launched with Arc v0.7.2, <span style={{ color: '#378ADD', fontFamily: 'monospace' }}>Multicall3From</span> lets developers bundle multiple contract calls into a single transaction — like the standard Multicall3 — but each subcall keeps the original caller's address via Arc's CallFrom precompile, instead of appearing to come from the multicall contract. Predeployed at <span style={{ color: '#378ADD', fontFamily: 'monospace' }}>0x522f...47D0</span>.
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '3rem' }}>
+          Scanning last {BATCH_SCAN_RANGE} blocks for batch activity... (may take a few seconds)
+        </div>
+      ) : stats ? (
+        <>
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: '1.25rem' }}>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Batch Txs Found</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: '#378ADD' }}>{stats.totalBatchTxs}</div>
+              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>last {stats.blocksScanned} blocks</div>
+            </div>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Calls Batched</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: '#A78BFA' }}>{stats.totalCalls}</div>
+              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>across all batch txs</div>
+            </div>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Unique Targets</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: '#1D9E75' }}>{stats.uniqueTargets}</div>
+              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>contracts called via batch</div>
+            </div>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Est. Gas Saved</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: '#EF9F27' }}>{stats.estGasSaved.toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>~21k gas / extra call avoided</div>
+            </div>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Multicall3From</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#EF9F27', fontFamily: 'monospace' }}>0x522f...47D0</div>
+              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>Arc v0.7.2</div>
+            </div>
+          </div>
+
+          {/* Top targets */}
+          {stats.topTargets.length > 0 && (
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem', marginBottom: '1.25rem' }}>
+              <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+                Contracts most called via batch
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {stats.topTargets.map(t => (
+                  <div key={t.address} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: '#94a3b8', fontFamily: 'monospace' }}>
+                      {t.address.slice(0, 10)}...{t.address.slice(-6)}
+                    </span>
+                    <span style={{ color: '#A78BFA' }}>{t.count} calls</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recent batch txs */}
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>
+              Recent batch transactions
+            </div>
+            {stats.recentBatches.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#f1f5f9', marginBottom: 6 }}>No batch transactions found yet</div>
+                <div style={{ fontSize: 12, color: '#475569', maxWidth: 400, margin: '0 auto' }}>
+                  Multicall3From was just launched with v0.7.2 on June 18, 2026. Be the first to batch a transaction on Arc!
+                </div>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ color: '#475569', fontSize: 11, textTransform: 'uppercase' }}>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Tx Hash</th>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Block</th>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Calls</th>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Targets</th>
+                    <th style={{ textAlign: 'right', paddingBottom: 8, fontWeight: 500 }}>Est. Gas Saved</th>
+                    <th style={{ textAlign: 'right', paddingBottom: 8, fontWeight: 500 }}>Age</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.recentBatches.map(b => {
+                    const uniqueTargets = Array.from(new Set(b.targets.map(t => t.toLowerCase())))
+                    const shown = uniqueTargets.slice(0, 2).map(t => `${t.slice(0, 8)}...${t.slice(-4)}`).join(', ')
+                    const extra = uniqueTargets.length > 2 ? ` +${uniqueTargets.length - 2} more` : ''
+                    return (
+                      <tr key={b.hash} style={{ borderTop: '1px solid #1e1e2e' }}>
+                        <td style={{ padding: '8px 0', color: '#378ADD', fontFamily: 'monospace' }}>
+                          <a href={`https://testnet.arcscan.app/tx/${b.hash}`} target="_blank" rel="noopener noreferrer"
+                            style={{ color: '#378ADD', textDecoration: 'none' }}>
+                            {b.hash.slice(0, 8)}...{b.hash.slice(-6)}
+                          </a>
+                        </td>
+                        <td style={{ padding: '8px 0', color: '#1D9E75' }}>#{b.block.toLocaleString()}</td>
+                        <td style={{ padding: '8px 0', color: '#A78BFA' }}>{b.callCount}</td>
+                        <td style={{ padding: '8px 0', color: '#94a3b8', fontFamily: 'monospace' }}>{shown}{extra}</td>
+                        <td style={{ padding: '8px 0', textAlign: 'right', color: '#EF9F27' }}>
+                          {(Math.max(0, b.callCount - 1) * BASE_TX_GAS).toLocaleString()}
+                        </td>
+                        <td style={{ padding: '8px 0', textAlign: 'right', color: '#64748b' }}>{timeAgo(b.timestamp)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {lastUpdated && (
+            <div style={{ fontSize: 11, color: '#334155', marginTop: '1rem', textAlign: 'right' }}>
+              Last updated: {lastUpdated.toLocaleTimeString()} · Multicall3From contract: {MULTICALL3FROM_CONTRACT}
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{ fontSize: 13, color: '#ef4444', textAlign: 'center', padding: '2rem' }}>
+          Failed to load batch transaction data. Please try refreshing.
         </div>
       )}
     </div>
@@ -1733,8 +2032,30 @@ function scoreLabel(score: number | null) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function Home() {
-  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev' | 'networks' | 'memos'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev' | 'networks' | 'memos' | 'batches'>('dashboard')
   const { data } = useArcData()
+
+  // Self-heal: Vercel's Hobby-plan cron does not retry a failed invocation, so a
+  // single hiccup (cold start, Supabase momentarily unreachable, etc.) silently
+  // skips that day with no second chance until the next scheduled run. As a
+  // backstop, every time someone opens the dashboard we check how old the most
+  // recent snapshot is — if it's stale, we kick off a fresh /api/collect right
+  // away instead of waiting on the cron alone.
+  useEffect(() => {
+    const STALE_HOURS = 26
+    fetch(`${SUPABASE_URL}/rest/v1/network_snapshots?select=created_at&order=created_at.desc&limit=1`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+    })
+      .then(res => res.json())
+      .then((rows: { created_at: string }[]) => {
+        const last = rows?.[0]?.created_at
+        const hoursSince = last ? (Date.now() - new Date(last).getTime()) / 3_600_000 : Infinity
+        if (hoursSince > STALE_HOURS) {
+          fetch('/api/collect').catch(() => {})
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const score = calcScore(data.avgBlockTime, data.rpcLatency, 1)
   const { label, color, bg } = scoreLabel(score)
@@ -1749,6 +2070,7 @@ export default function Home() {
     { id: 'dev', label: '👨‍💻 Dev Dashboard' },
     { id: 'networks', label: '🌐 Networks' },
     { id: 'memos', label: '📋 Memo Activity' },
+    { id: 'batches', label: '📦 Batch Transactions' },
   ] as const
 
   return (
@@ -1806,6 +2128,7 @@ export default function Home() {
       {tab === 'dev' && <DevDashboardTab />}
       {tab === 'networks' && <NetworkComparisonTab />}
       {tab === 'memos' && <MemoActivityTab />}
+      {tab === 'batches' && <BatchTransactionsTab />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem', fontSize: 11, color: '#334155' }}>
         <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002</span>

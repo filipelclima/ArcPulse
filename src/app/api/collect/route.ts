@@ -8,6 +8,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 )
 
+// If anything longer than this has passed since the last snapshot, something
+// went wrong upstream (cron didn't fire, Supabase was unreachable, etc.) — the
+// daily cron schedule plus Vercel's Hobby 1-hour scheduling window means a
+// healthy gap should never exceed ~25h.
+const STALE_GAP_HOURS = 26
+
+async function sendDiscordAlert(message: string) {
+  const webhook = process.env.DISCORD_WEBHOOK_URL
+  if (!webhook) return // not configured — skip silently, don't fail the request over it
+  try {
+    await fetch(webhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: message }),
+    })
+  } catch {
+    // best-effort only — a failed alert should never break /api/collect itself
+  }
+}
+
 async function rpcCall(method: string, params: unknown[] = []) {
   const t0 = Date.now()
   const res = await fetch(RPC, {
@@ -36,6 +56,25 @@ function getSeverity(score: number): string | null {
 
 export async function GET() {
   try {
+    // Check how long it's been since the last successful snapshot, *before*
+    // inserting the new one — this is what catches a multi-day silent gap
+    // (e.g. cron not firing, Supabase paused) the moment data collection
+    // resumes, instead of it going unnoticed indefinitely.
+    let gapHours: number | null = null
+    try {
+      const { data: lastRows } = await supabase
+        .from('network_snapshots')
+        .select('created_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+      const lastCreatedAt = lastRows?.[0]?.created_at
+      if (lastCreatedAt) {
+        gapHours = (Date.now() - new Date(lastCreatedAt).getTime()) / 3_600_000
+      }
+    } catch {
+      // if even the read fails, we'll find out below when the insert is attempted
+    }
+
     const { result: blockHex, latency } = await rpcCall('eth_blockNumber')
     const latest = hexToNum(blockHex)
     const { result: chainHex } = await rpcCall('eth_chainId')
@@ -75,8 +114,16 @@ export async function GET() {
 
     if (error) throw error
 
+    if (gapHours !== null && gapHours > STALE_GAP_HOURS) {
+      await sendDiscordAlert(
+        `⚠️ **ArcPulse — collection gap detected**\nNo snapshot was recorded for about **${gapHours.toFixed(1)}h** before this one. Likely cause: a missed cron invocation (no auto-retry on Hobby) or the Supabase project was unreachable/paused. Collection has now resumed — block #${latest}.`
+      )
+    }
+
     return NextResponse.json({ success: true, block: latest, score, anomaly: severity !== null, severity })
   } catch (e) {
+    await sendDiscordAlert(`🔴 **ArcPulse — /api/collect failed**\n\`\`\`${String(e).slice(0, 500)}\`\`\``)
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 })
   }
 }
+
