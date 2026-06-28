@@ -56,18 +56,20 @@ function getSeverity(score: number): string | null {
 
 export async function GET() {
   try {
-    // Check how long it's been since the last successful snapshot, *before*
-    // inserting the new one — this is what catches a multi-day silent gap
-    // (e.g. cron not firing, Supabase paused) the moment data collection
-    // resumes, instead of it going unnoticed indefinitely.
+    // Check the previous snapshot's gap *and* anomaly state before inserting
+    // the new one — gap detection catches missed collections (see below);
+    // anomaly state lets us alert only on a *transition* into/out of an
+    // anomaly, instead of re-alerting on every poll while it persists.
     let gapHours: number | null = null
+    let wasAnomaly = false
     try {
       const { data: lastRows } = await supabase
         .from('network_snapshots')
-        .select('created_at')
+        .select('created_at, anomaly')
         .order('created_at', { ascending: false })
         .limit(1)
       const lastCreatedAt = lastRows?.[0]?.created_at
+      wasAnomaly = lastRows?.[0]?.anomaly === true
       if (lastCreatedAt) {
         gapHours = (Date.now() - new Date(lastCreatedAt).getTime()) / 3_600_000
       }
@@ -98,6 +100,7 @@ export async function GET() {
 
     const score = calcScore(avgBlockTime, latency)
     const severity = getSeverity(score)
+    const isAnomaly = severity !== null
 
     const { error } = await supabase.from('network_snapshots').insert({
       created_at: new Date().toISOString(),
@@ -108,11 +111,21 @@ export async function GET() {
       tx_count: totalTx,
       chain_id: hexToNum(chainHex),
       health_score: score,
-      anomaly: severity !== null,
+      anomaly: isAnomaly,
       anomaly_severity: severity,
     })
 
     if (error) throw error
+
+    if (isAnomaly && !wasAnomaly) {
+      await sendDiscordAlert(
+        `🔴 **ArcPulse — network anomaly detected** (${severity})\nHealth score dropped to **${score}/100**.\nAvg block time: ${avgBlockTime.toFixed(2)}s · RPC latency: ${latency}ms · Block #${latest}.`
+      )
+    } else if (!isAnomaly && wasAnomaly) {
+      await sendDiscordAlert(
+        `✅ **ArcPulse — network back to healthy**\nHealth score recovered to **${score}/100** — Block #${latest}.`
+      )
+    }
 
     if (gapHours !== null && gapHours > STALE_GAP_HOURS) {
       await sendDiscordAlert(
@@ -120,7 +133,7 @@ export async function GET() {
       )
     }
 
-    return NextResponse.json({ success: true, block: latest, score, anomaly: severity !== null, severity })
+    return NextResponse.json({ success: true, block: latest, score, anomaly: isAnomaly, severity })
   } catch (e) {
     await sendDiscordAlert(`🔴 **ArcPulse — /api/collect failed**\n\`\`\`${String(e).slice(0, 500)}\`\`\``)
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 })
