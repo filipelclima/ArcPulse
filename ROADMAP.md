@@ -3,46 +3,103 @@
 > Dashboard de monitoramento da Arc blockchain testnet. Builder: HashZero.
 > Objetivo: ganhar reputação na comunidade Arc House e conseguir o cargo de Builder/Architect.
 
-## Status atual (última atualização: 24/06/2026)
+## Status atual (última atualização: 28/06/2026, sessão 3)
 
-8 abas em `page.tsx`: Dashboard, Reports (AI Report + Uptime History), Compare, Anomalies,
+9 abas em `page.tsx`: Dashboard, Reports (AI Report + Uptime History), Compare, Anomalies,
 Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator), Dev Dashboard
-(Connect Wallet via MetaMask/Rabby), Networks (Arc vs Ethereum/Polygon/BNB/Arbitrum), Memo Activity.
+(Connect Wallet via MetaMask/Rabby), Networks (Arc vs Ethereum/Polygon/BNB/Arbitrum), Memo Activity,
+**Batch Transactions** (nova).
 
 **Concluído recentemente:**
-- Memo Activity Monitor: varredura corrigida de 200 → 2000 blocos (sub-1s block time da Arc fazia
+
+- **Memo Activity Monitor:** varredura corrigida de 200 → 2000 blocos (sub-1s block time da Arc fazia
   txs "saltarem fora" da janela rápido demais). Trocada amostragem esparsa (20 blocos) por varredura
   completa em lotes de 50 (`MEMO_SCAN_RANGE`, `MEMO_SCAN_BATCH_SIZE` no `page.tsx`). Validado em
   produção com 39 memo txs capturadas corretamente.
-- **Pendência aberta:** todas as 39 memo txs capturadas mostram o mesmo Memo ID
-  (`0x0000000000000000...`) repetido. Pode ser comportamento esperado do script de teste
-  (`send-memo.ts`, fora do projeto principal) ou bug de offset no parsing de `tx.input`
-  (linha que faz `tx.input.slice(34,74)` / `.slice(74,138)` no `MemoActivityTab`). Precisa
-  confirmar com o `tx.input` bruto de uma transação antes de decidir se corrige.
+- **Memo ID zerado — resolvido:** confirmado via doc oficial (`docs.arc.io/arc/references/contract-addresses`)
+  que o endereço USDC na Arc é `0x3600000000000000000000000000000000000000` — exatamente o "Target"
+  que aparecia em todas as memo txs. O parsing está correto: o target real é o contrato USDC, porque o
+  `send-memo.ts` testa memos anexados a transferências de USDC. O Memo ID sempre zerado é o script de
+  teste usando um placeholder fixo, não bug no `page.tsx`.
+- **Batch Transactions Monitor (nova aba "📦 Batch Transactions") — concluído e em produção.** Usa o
+  contrato oficial `Multicall3From` (`0x522fAf9A91c41c443c66765030741e4AaCe147D0`, confirmado em
+  `docs.arc.io/arc/references/contract-addresses` — preserva `msg.sender` via precompile `CallFrom`).
+  Decodificação via `viem` (`decodeFunctionData`, ABI padrão do Multicall3:
+  `aggregate`/`aggregate3`/`aggregate3Value`) em vez de slicing manual. Mostra: txs em lote, total de
+  calls batchadas, contratos mais chamados via batch, gas economizado estimado (~21k gas por call extra
+  evitada).
+- **Investigação do gap no Uptime History (19-23/06) — causa raiz não 100% confirmada, mas
+  infraestrutura corrigida.** Resumo da investigação:
+  - Descartado bug de código: `ReportsTab`/Uptime History só lista dias que realmente têm linhas no
+    Supabase, sem `LIMIT` e sem criar buracos artificiais.
+  - Descoberto e descartado: existia um **projeto Vercel duplicado** (`arc-pulse`, com hífen →
+    `arc-pulse-ruddy.vercel.app`), importado por engano em 03/06, com seu próprio cron e env vars do
+    Supabase — mas confirmado via teste direto (inserção não apareceu na tabela) que ele escrevia num
+    banco Supabase **diferente** (órfão). Não era a causa do gap. Já deletado (ver abaixo).
+  - Causa mais provável: cron do Hobby da Vercel não tem retry em caso de falha (confirmado na doc
+    oficial), combinado possivelmente com pause por inatividade do Supabase free tier (pausa após 7
+    dias sem query real). Logs de execução do cron e da function no Hobby só ficam retidos por 1h — não
+    foi possível confirmar forense o que houve especificamente em 19-23/06.
+  - **Descoberta importante ao testar a correção:** o problema não era só histórico — entre 24/06 e
+    28/06 (4 dias) o cron ficou mudo de novo, sem nenhum snapshot novo. Ou seja, é um problema **crônico**
+    da infra free tier, não um incidente isolado.
+- **Self-heal + alerta no Discord — implementado e validado em produção (28/06).**
+  - Frontend (`page.tsx`, componente `Home`): ao abrir o site, checa há quanto tempo veio o último
+    snapshot; se > 26h, dispara `/api/collect` na hora, sem esperar o cron.
+  - Backend (`/api/collect/route.ts`): antes de inserir, compara com o último `created_at` existente;
+    se o gap > 26h, manda alerta pro Discord via `DISCORD_WEBHOOK_URL` (env var). Se a própria inserção
+    falhar, manda alerta de erro também.
+  - Validado: ao testar, capturou um gap real de **99.6h** (24/06 → 28/06) e alertou corretamente.
+- **Alerta de anomalia de rede no Discord — concluído (28/06).** Reaproveita o mesmo
+  `sendDiscordAlert`/`DISCORD_WEBHOOK_URL` do item acima. Compara o estado de anomalia do snapshot
+  anterior (`anomaly` no banco) com o atual e alerta só na **transição**: 🔴 quando entra em anomalia
+  (com score, block time médio, latência e bloco), ✅ quando volta a saudável. Não espama o canal
+  enquanto o problema persiste — 1 aviso no início, 1 na recuperação. Isso fecha os dois itens
+  "Webhook/Discord Alert" do roadmap (confiabilidade da coleta + anomalia de rede).
+- **Projeto Vercel duplicado `arc-pulse` — deletado (28/06).** Housekeeping concluído.
+
+**Pendências abertas:**
+- Localizar e limpar o projeto Supabase órfão associado ao `arc-pulse` (free tier permite só 2
+  projetos ativos) — o projeto Vercel já foi deletado, mas o banco órfão pode ainda existir do lado do
+  Supabase.
+- Confirmar nos próximos dias se o cron da Vercel "voltou a funcionar" sozinho ou se vai continuar
+  falhando (nesse caso, o self-heal cobre o buraco toda vez que alguém visita o site, mas o ideal seria
+  o cron funcionar de verdade).
+- Considerar trocar a varredura do Memo Activity por `eth_getLogs` (mais eficiente que varrer 2000
+  blocos) — doc oficial confirma que o contrato Memo "emits `Memo` events with a sequential index".
+  Ainda não implementado para não arriscar quebrar o que já foi validado em produção.
+- Confirmar decodificação do Multicall3From com uma batch tx real (ainda não testado contra a RPC ao
+  vivo — sandbox de desenvolvimento não tem acesso à RPC da Arc).
+
+## Arc Ecosystem Watch (log de novidades do Discord/Arc)
+
+> HashZero cola aqui resumos de anúncios do Discord da Arc entre sessões, pra manter qualquer chat
+> novo atualizado sem precisar reexplicar tudo.
+
+- **26/06/2026 — Vyper on Arc (agentic payments).** Spotlight da Arc sobre o trabalho da Vyper
+  (linguagem Pythonic para EVM, framework Titanoboa) na Arc Testnet combinando três camadas: identidade
+  (registro/validação/reputação de agentes via **ERC-8004**), liquidação (fluxos **x402** + Circle Gateway
+  para pagamentos software-native) e controles programáveis (escrow, assinaturas, split payments, limites
+  de gasto). Relevante pro ArcPulse: doc oficial da Arc já tem tutoriais nativos pra ERC-8004
+  (`/arc/tutorials/register-your-first-ai-agent`) e ERC-8183 (`/arc/tutorials/create-your-first-erc-8183-job`)
+  — possível ideia futura: aba "Agent Activity" monitorando registros ERC-8004 ou settlements x402, no
+  mesmo padrão do Memo/Batch Activity. Ainda não implementado, só anotado.
+  Fontes: community.arc.io/Arc House (blog) e arc.io/blog/building-agentic-economic-workflows-with-vyper-on-arc.
 
 ## 🔴 Alta prioridade
 
-1. **Batch Transactions Monitor**
-   Par do Memo Activity — v0.7.2 também trouxe Batch Transactions (múltiplas calls em uma tx).
-   Mostrar: quantas txs usam batching, economia de gas estimada, quais contratos mais se
-   beneficiam. Reaproveitar a estrutura do `MemoActivityTab` (varredura em lotes já resolvida ali).
-
-2. **Export de dados (CSV/JSON)**
+1. **Export de dados (CSV/JSON)**
    Botão em Reports e Compare para exportar dados brutos. Aumenta percepção de "ferramenta
    profissional" para builders e para a própria equipe Arc.
 
 ## 🟡 Médio prazo
 
-3. **Webhook/Discord Alert**
-   Anomalia crítica detectada → notificação automática via webhook num canal Discord. Transforma
-   o ArcPulse de dashboard passivo em sistema de alerta ativo.
-
-4. **Faucet Status Tracker**
+2. **Faucet Status Tracker**
    Monitorar se o Circle Faucet está respondendo normalmente — pergunta recorrente de builders novos.
 
 ## 🟢 Mais ambicioso
 
-5. **API pública do ArcPulse**
+3. **API pública do ArcPulse**
    Expor dados já coletados via `/api/public-stats` para outros builders consumirem. Posiciona o
    ArcPulse como infraestrutura da comunidade, não só um dashboard.
 
@@ -50,10 +107,14 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
 
 - Site: https://arcpulse-self.vercel.app
 - GitHub: https://github.com/filipelclima/ArcPulse
-- Supabase: `xquxgqypeappuxdmusdt` (snapshots)
+- Supabase: `xquxgqypeappuxdmusdt` (snapshots) — projeto Vercel correto é **`arcpulse`** (sem hífen).
+  Existia um projeto duplicado **`arc-pulse`** (com hífen) que escrevia num Supabase órfão diferente —
+  **já deletado da Vercel (28/06)**. Banco Supabase órfão associado a ele pode ainda existir, pendente
+  de limpeza (ver pendências abertas).
 - Pasta local: `C:\Users\faecu\Downloads\arcpulse\arcpulse`
 - Stack: Next.js 14 + Vercel + Supabase + Anthropic API + RPC público `https://rpc.testnet.arc.network`
-- `/api/collect`: coleta snapshots no Supabase (cron 1x/dia + manual)
+- `/api/collect`: coleta snapshots no Supabase (cron 1x/dia + manual + self-heal no frontend) + alerta
+  Discord via `DISCORD_WEBHOOK_URL`
 - `/api/report`: gera relatório via Anthropic API
 - `DevDashboard.tsx`: ConnectButton/DevDashboardTab própria, sem Reown/WalletConnect (`window.ethereum` direto)
 - Script de teste de memos: `send-memo.ts` em `C:\Users\faecu\Downloads\memo-test\memo-test` (fora do projeto principal)
