@@ -94,6 +94,59 @@ function networkStatus(blockTime: number, latency: number) {
   return { label: 'Degraded', color: '#ef4444' }
 }
 
+// ─── DATA EXPORT (CSV / JSON) ─────────────────────────────────────
+function toCSV(rows: Record<string, any>[]): string {
+  if (rows.length === 0) return ''
+  const headers = Object.keys(rows[0])
+  const escape = (val: any) => {
+    const s = val === null || val === undefined ? '' : String(val)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const lines = [headers.join(',')]
+  for (const row of rows) lines.push(headers.map(h => escape(row[h])).join(','))
+  return lines.join('\n')
+}
+
+function downloadFile(content: string, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function exportJSON(rows: Record<string, any>[], filename: string) {
+  downloadFile(JSON.stringify(rows, null, 2), filename, 'application/json')
+}
+
+function exportCSV(rows: Record<string, any>[], filename: string) {
+  downloadFile(toCSV(rows), filename, 'text/csv')
+}
+
+function ExportButtons({ data, filenameBase }: { data: Record<string, any>[]; filenameBase: string }) {
+  const disabled = data.length === 0
+  const btnStyle = {
+    fontSize: 12, padding: '7px 14px', borderRadius: 8,
+    border: '1px solid #1e1e2e', background: 'transparent',
+    color: disabled ? '#334155' : '#94a3b8',
+    cursor: disabled ? 'not-allowed' as const : 'pointer' as const,
+  }
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <button onClick={() => exportCSV(data, `${filenameBase}.csv`)} disabled={disabled} style={btnStyle}>
+        ⬇ CSV
+      </button>
+      <button onClick={() => exportJSON(data, `${filenameBase}.json`)} disabled={disabled} style={btnStyle}>
+        ⬇ JSON
+      </button>
+    </div>
+  )
+}
+
 // ─── DASHBOARD TAB ────────────────────────────────────────────────
 function DashboardTab() {
   const { data, refresh } = useArcData()
@@ -395,6 +448,9 @@ function ReportsTab() {
           style={{ background: 'transparent', color: '#64748b', border: '1px solid #1e1e2e', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer' }}>
           Clear
         </button>
+        <div style={{ marginLeft: 'auto' }}>
+          <ExportButtons data={snapshots} filenameBase={`arcpulse-snapshots${from ? `-${from}` : ''}${to ? `_to_${to}` : ''}`} />
+        </div>
       </div>
 
       {loading ? (
@@ -448,6 +504,7 @@ function ReportsTab() {
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span style={{ fontSize: 13, color: status.color, background: `${status.color}22`, padding: '4px 12px', borderRadius: 8 }}>{status.label}</span>
+                      <ExportButtons data={snaps} filenameBase={`arcpulse-report-${selected}`} />
                       <button onClick={generateAIReport} disabled={aiLoading}
                         style={{ background: aiLoading ? '#1a1a2e' : '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 500, cursor: aiLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                         {aiLoading ? '⏳ Generating...' : '✨ AI Report'}
@@ -1137,12 +1194,14 @@ function CompareTab() {
           </div>
         ) : (
           <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-              <div style={{ fontSize: 13, color: '#64748b' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 10 }}>
                 Period A: <strong style={{ color: '#f1f5f9' }}>{periodA.from}{periodA.to && periodA.to !== periodA.from ? ` → ${periodA.to}` : ''}</strong> ({dataA.length} snapshots)
+                <ExportButtons data={dataA} filenameBase={`arcpulse-compare-A-${periodA.from}`} />
               </div>
-              <div style={{ fontSize: 13, color: '#64748b' }}>
+              <div style={{ fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 10 }}>
                 Period B: <strong style={{ color: '#f1f5f9' }}>{periodB.from}{periodB.to && periodB.to !== periodB.from ? ` → ${periodB.to}` : ''}</strong> ({dataB.length} snapshots)
+                <ExportButtons data={dataB} filenameBase={`arcpulse-compare-B-${periodB.from}`} />
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: '1.25rem' }}>
