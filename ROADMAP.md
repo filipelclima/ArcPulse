@@ -3,7 +3,7 @@
 > Dashboard de monitoramento da Arc blockchain testnet. Builder: HashZero.
 > Objetivo: ganhar reputação na comunidade Arc House e conseguir o cargo de Builder/Architect.
 
-## Status atual (última atualização: 28/06/2026, sessão 3)
+## Status atual (última atualização: 30/06/2026, sessão 3)
 
 9 abas em `page.tsx`: Dashboard, Reports (AI Report + Uptime History), Compare, Anomalies,
 Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator), Dev Dashboard
@@ -57,6 +57,12 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   enquanto o problema persiste — 1 aviso no início, 1 na recuperação. Isso fecha os dois itens
   "Webhook/Discord Alert" do roadmap (confiabilidade da coleta + anomalia de rede).
 - **Projeto Vercel duplicado `arc-pulse` — deletado (28/06).** Housekeeping concluído.
+- **Export de dados CSV/JSON — concluído (30/06).** Botões "⬇ CSV" / "⬇ JSON" reutilizáveis
+  (`ExportButtons`, helpers `toCSV`/`exportCSV`/`exportJSON`/`downloadFile` em escopo de módulo).
+  Em **Reports**: na barra de filtro (exporta todos os snapshots do período filtrado) e no detalhe do
+  dia selecionado (exporta só aquele dia). Em **Compare**: um par de botões por período (A e B),
+  exportando os dados brutos de cada um. CSV gerado sem dependência nova, com escape correto de
+  vírgulas/aspas/quebras de linha. Botões desabilitados quando não há dados.
 
 **Pendências abertas:**
 - Localizar e limpar o projeto Supabase órfão associado ao `arc-pulse` (free tier permite só 2
@@ -88,18 +94,16 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
 
 ## 🔴 Alta prioridade
 
-1. **Export de dados (CSV/JSON)**
-   Botão em Reports e Compare para exportar dados brutos. Aumenta percepção de "ferramenta
-   profissional" para builders e para a própria equipe Arc.
+_(nenhum item de alta prioridade pendente no momento — ver Médio prazo abaixo)_
 
 ## 🟡 Médio prazo
 
-2. **Faucet Status Tracker**
+1. **Faucet Status Tracker**
    Monitorar se o Circle Faucet está respondendo normalmente — pergunta recorrente de builders novos.
 
 ## 🟢 Mais ambicioso
 
-3. **API pública do ArcPulse**
+2. **API pública do ArcPulse**
    Expor dados já coletados via `/api/public-stats` para outros builders consumirem. Posiciona o
    ArcPulse como infraestrutura da comunidade, não só um dashboard.
 
