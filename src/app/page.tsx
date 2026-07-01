@@ -723,6 +723,97 @@ interface TxStats {
   blocksScanned: number
 }
 
+interface FaucetStatus {
+  online: boolean
+  statusCode: number | null
+  blocked: boolean
+  latency: number
+  checkedAt: string
+  error?: string
+}
+
+function FaucetStatusCard() {
+  const [status, setStatus] = useState<FaucetStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  async function check() {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/faucet-status')
+      const data: FaucetStatus = await res.json()
+      setStatus(data)
+    } catch {
+      setStatus(null)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { check() }, [])
+
+  const latencyColor = (ms: number) =>
+    ms <= 800 ? '#1D9E75' : ms <= 2000 ? '#EF9F27' : '#ef4444'
+
+  // Three states, not two: a real network failure (genuinely offline) is a
+  // different signal than "server responded but with a non-2xx" (often bot
+  // protection blocking automated requests — see route.ts caveat) — both are
+  // shown distinctly instead of collapsing into a misleading red/green.
+  const dotColor = !status ? '#475569' : !status.online ? '#ef4444' : status.blocked ? '#EF9F27' : '#1D9E75'
+  const label = !status
+    ? 'Unknown'
+    : !status.online
+      ? 'Offline / Unreachable'
+      : status.blocked
+        ? `Reachable (HTTP ${status.statusCode})`
+        : 'Online'
+
+  return (
+    <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>💧 Circle Faucet Status</div>
+        <button onClick={check} disabled={loading}
+          style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #1e1e2e', background: 'transparent', color: '#64748b', cursor: 'pointer' }}>
+          ↻
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: '#475569' }}>Checking faucet.circle.com...</div>
+      ) : status ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor }} />
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: dotColor }}>{label}</div>
+              <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace', textDecoration: 'none' }}>
+                faucet.circle.com ↗
+              </a>
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            {status.online ? (
+              <div style={{ fontSize: 18, fontWeight: 600, color: latencyColor(status.latency) }}>{status.latency}ms</div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#ef4444' }}>{status.error === 'timeout' ? 'Timed out' : 'No response'}</div>
+            )}
+            <div style={{ fontSize: 11, color: '#475569' }}>
+              {new Date(status.checkedAt).toLocaleTimeString()}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: '#ef4444' }}>Couldn't check faucet status. Try refreshing.</div>
+      )}
+
+      <div style={{ fontSize: 11, color: '#334155', marginTop: 10, lineHeight: 1.5 }}>
+        Checks reachability of Circle's public USDC/EURC faucet page (20 USDC per address every 2h on Arc Testnet).
+        {status?.blocked && ' "Reachable" with a non-200 response usually means the server is up but blocking automated requests (bot protection) — it does not mean the faucet is down.'}
+        {' '}This reflects whether the page is responding, not whether your specific claim will succeed.
+      </div>
+    </div>
+  )
+}
+
 function NetworkStatusTab() {
   const [endpoints, setEndpoints] = useState<EndpointStatus[]>(
     RPC_ENDPOINTS.map(e => ({ ...e, latency: null, status: 'testing' as const, blockNumber: null }))
@@ -851,13 +942,16 @@ function NetworkStatusTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
         <div>
           <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>Network Status</div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Real-time RPC health and transaction success rates</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Real-time RPC health, faucet status, and transaction success rates</div>
         </div>
         <button onClick={() => { runTests(); fetchTxStats() }}
           style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #1e1e2e', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
           ↻ Refresh
         </button>
       </div>
+
+      {/* Faucet Status */}
+      <FaucetStatusCard />
 
       {/* Transaction Success Rate */}
       <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem', marginBottom: '1.25rem' }}>
