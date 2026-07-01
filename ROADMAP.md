@@ -3,7 +3,7 @@
 > Dashboard de monitoramento da Arc blockchain testnet. Builder: HashZero.
 > Objetivo: ganhar reputação na comunidade Arc House e conseguir o cargo de Builder/Architect.
 
-## Status atual (última atualização: 30/06/2026, sessão 3)
+## Status atual (última atualização: 01/07/2026, sessão 3)
 
 9 abas em `page.tsx`: Dashboard, Reports (AI Report + Uptime History), Compare, Anomalies,
 Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator), Dev Dashboard
@@ -63,6 +63,13 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   dia selecionado (exporta só aquele dia). Em **Compare**: um par de botões por período (A e B),
   exportando os dados brutos de cada um. CSV gerado sem dependência nova, com escape correto de
   vírgulas/aspas/quebras de linha. Botões desabilitados quando não há dados.
+- **Faucet Status Tracker — concluído (01/07).** Nova rota `/api/faucet-status` (server-side,
+  `force-dynamic`) + card "💧 Circle Faucet Status" no topo da aba Network Status. Três estados:
+  🟢 Online (2xx + latência), 🟡 Reachable com bloqueio (4xx — bot protection comum em IPs de
+  datacenter, não significa fora do ar), 🔴 Offline (timeout/sem resposta). Detalhe importante: testado
+  e confirmado que `faucet.circle.com` retorna 403 pra IPs de cloud/datacenter (incluindo Vercel
+  serverless) — um monitor simples verde/vermelho mostraria falso positivo permanente de "OFFLINE".
+  A versão atual distingue os 3 estados e explica ao usuário o que cada um significa.
 
 **Pendências abertas:**
 - Localizar e limpar o projeto Supabase órfão associado ao `arc-pulse` (free tier permite só 2
@@ -94,12 +101,11 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
 
 ## 🔴 Alta prioridade
 
-_(nenhum item de alta prioridade pendente no momento — ver Médio prazo abaixo)_
+_(nenhum item pendente)_
 
 ## 🟡 Médio prazo
 
-1. **Faucet Status Tracker**
-   Monitorar se o Circle Faucet está respondendo normalmente — pergunta recorrente de builders novos.
+_(nenhum item pendente)_
 
 ## 🟢 Mais ambicioso
 
