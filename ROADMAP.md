@@ -111,20 +111,44 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   mesmo padrão do Memo/Batch Activity. Ainda não implementado, só anotado.
   Fontes: community.arc.io/Arc House (blog) e arc.io/blog/building-agentic-economic-workflows-with-vyper-on-arc.
 
+- **30/06/2026 — Arc x Chainlink Scale (GRANDE UPDATE).** Arc entrou no programa Chainlink Scale —
+  infraestrutura enterprise de oráculos e interoperabilidade cross-chain agora disponível na Arc Testnet.
+  O que está live no testnet:
+  - **CCIP Router:** `0xdE4E7FED43FAC37EB21aA0643d9852f75332eab8`
+  - **Chain Selector Arc Testnet:** `3034092155422581607`
+  - **ARM Proxy:** `0xD610B8f58689de7755947C05342A2DFaC30ebD57`
+  - **Token Admin Registry:** `0xd3e461C55676B10634a5F81b747c324B85686Dd1`
+  - **Registry Module Owner Custom:** `0x524B83ae8208490151339c626fd0E35b964483e3`
+  - **CCIP Config:** `0x3F1f176e347235858DD6Db905DDBA09Eaf25478a`
+  Serviços disponíveis: Chainlink Data Streams e Data Feeds (market data de baixa latência),
+  CCIP (interoperabilidade cross-chain segura), Proof of Reserve (verificação de colateral em
+  near-real time). Casos de uso: finance apps com market data externo, treasury/collateral
+  cross-chain, ativos tokenizados, coordenação de contratos entre chains.
+  Docs: docs.arc.network/arc/tools/oracles | docs.chain.link/builders-quick-links
+  Fonte: community.arc.io/home/blogs/arc-x-chainlink-data-and-cross-chain-infrastructure-for-arc-builders-2026-06-30
+  **Impacto pro ArcPulse:** possível futura aba "Oracle & CCIP Monitor" — monitorar atividade
+  no CCIP Router (mensagens cross-chain enviadas/recebidas), Data Feed updates (latência entre
+  updates de preço), e status do ARM Proxy. Seria uma feature exclusiva que nenhum outro
+  dashboard da Arc teria. Alta prioridade pra próxima sessão de desenvolvimento.
+
 ## 🏁 Roadmap original — 100% concluído
 
 Todos os itens planejados foram implementados e validados em produção.
 
 ## 💡 Próximas ideias (a priorizar)
 
-1. **Apresentação para Arc House / Office Hours** — documentar o ArcPulse de forma clara
-   para a comunidade Arc: o que monitora, quais features da v0.7.2 cobre, dados reais capturados,
-   link para o site e API pública. Impacto direto no objetivo de Builder/Architect.
+1. **Oracle & CCIP Monitor (NOVO — alta prioridade)** — monitorar atividade Chainlink na Arc:
+   mensagens cross-chain no CCIP Router (`0xdE4E7FED43FAC37EB21aA0643d9852f75332eab8`), Data Feed
+   updates (frequência e latência), status do ARM Proxy. Feature exclusiva que nenhum outro dashboard
+   da Arc teria — especialmente relevante agora que a Arc acabou de entrar no Chainlink Scale (30/06).
 
-2. **Agent Activity Monitor** — monitorar registros ERC-8004 (agentes de IA) e settlements x402
+2. **Apresentação para Arc House / Office Hours** — blog post e roteiro de live já prontos
+   (gerados em 01/07). Publicar em community.arc.io e apresentar no Arc Hours no Discord.
+
+3. **Agent Activity Monitor** — monitorar registros ERC-8004 (agentes de IA) e settlements x402
    na Arc Testnet, no mesmo padrão do Memo/Batch Activity. Inspirado no spotlight da Vyper (26/06).
 
-3. **Melhorar varredura do Memo Activity** — trocar varredura bloco-a-bloco por `eth_getLogs`
+4. **Melhorar varredura do Memo Activity** — trocar varredura bloco-a-bloco por `eth_getLogs`
    (muito mais eficiente). Doc oficial confirma que o contrato Memo emite eventos com índice sequencial.
 
 ## Contexto do projeto (para retomar em chat novo)
