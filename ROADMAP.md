@@ -5,6 +5,12 @@
 
 ## Status atual (última atualização: 01/07/2026, sessão 3)
 
+10 abas/rotas em produção: Dashboard, Reports (AI Report + Uptime History + Export CSV/JSON),
+Compare (Export CSV/JSON), Anomalies, Network Status (Success Rate + Tx Type Breakdown + RPC Monitor
++ Gas Estimator + **Faucet Status Tracker**), Dev Dashboard (Connect Wallet via MetaMask/Rabby),
+Networks (Arc vs Ethereum/Polygon/BNB/Arbitrum), Memo Activity, **Batch Transactions**,
++ **API Pública** (`/api/public-stats`).
+
 9 abas em `page.tsx`: Dashboard, Reports (AI Report + Uptime History), Compare, Anomalies,
 Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator), Dev Dashboard
 (Connect Wallet via MetaMask/Rabby), Networks (Arc vs Ethereum/Polygon/BNB/Arbitrum), Memo Activity,
@@ -70,6 +76,12 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   e confirmado que `faucet.circle.com` retorna 403 pra IPs de cloud/datacenter (incluindo Vercel
   serverless) — um monitor simples verde/vermelho mostraria falso positivo permanente de "OFFLINE".
   A versão atual distingue os 3 estados e explica ao usuário o que cada um significa.
+- **API Pública `/api/public-stats` — concluída (01/07).** Rota read-only, unauthenticated, CORS
+  aberto (`*`), cache de 5min. Três endpoints: `summary` (agregados 7d + 30d: block time, gas price,
+  latência RPC, health score, tx count, anomaly count), `latest` (snapshot mais recente), `snapshots`
+  (dados brutos paginados, params `limit` até 100 e `days` até 30). Usa `ANON_KEY` (não a
+  `SERVICE_KEY`) — princípio de menor privilégio. Autodocumentada via campo `meta` em cada resposta.
+  Validado em produção: `{"ok":true,"endpoint":"summary","last_7d":{"snapshots":9,"avg_health_score":96},...}`
 
 **Pendências abertas:**
 - Localizar e limpar o projeto Supabase órfão associado ao `arc-pulse` (free tier permite só 2
@@ -99,19 +111,21 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   mesmo padrão do Memo/Batch Activity. Ainda não implementado, só anotado.
   Fontes: community.arc.io/Arc House (blog) e arc.io/blog/building-agentic-economic-workflows-with-vyper-on-arc.
 
-## 🔴 Alta prioridade
+## 🏁 Roadmap original — 100% concluído
 
-_(nenhum item pendente)_
+Todos os itens planejados foram implementados e validados em produção.
 
-## 🟡 Médio prazo
+## 💡 Próximas ideias (a priorizar)
 
-_(nenhum item pendente)_
+1. **Apresentação para Arc House / Office Hours** — documentar o ArcPulse de forma clara
+   para a comunidade Arc: o que monitora, quais features da v0.7.2 cobre, dados reais capturados,
+   link para o site e API pública. Impacto direto no objetivo de Builder/Architect.
 
-## 🟢 Mais ambicioso
+2. **Agent Activity Monitor** — monitorar registros ERC-8004 (agentes de IA) e settlements x402
+   na Arc Testnet, no mesmo padrão do Memo/Batch Activity. Inspirado no spotlight da Vyper (26/06).
 
-2. **API pública do ArcPulse**
-   Expor dados já coletados via `/api/public-stats` para outros builders consumirem. Posiciona o
-   ArcPulse como infraestrutura da comunidade, não só um dashboard.
+3. **Melhorar varredura do Memo Activity** — trocar varredura bloco-a-bloco por `eth_getLogs`
+   (muito mais eficiente). Doc oficial confirma que o contrato Memo emite eventos com índice sequencial.
 
 ## Contexto do projeto (para retomar em chat novo)
 
