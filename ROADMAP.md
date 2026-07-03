@@ -3,13 +3,11 @@
 > Dashboard de monitoramento da Arc blockchain testnet. Builder: HashZero.
 > Objetivo: ganhar reputação na comunidade Arc House e conseguir o cargo de Builder/Architect.
 
-## Status atual (última atualização: 01/07/2026, sessão 3)
+## Status atual (última atualização: 03/07/2026, sessão 3)
 
-10 abas/rotas em produção: Dashboard, Reports (AI Report + Uptime History + Export CSV/JSON),
-Compare (Export CSV/JSON), Anomalies, Network Status (Success Rate + Tx Type Breakdown + RPC Monitor
-+ Gas Estimator + **Faucet Status Tracker**), Dev Dashboard (Connect Wallet via MetaMask/Rabby),
-Networks (Arc vs Ethereum/Polygon/BNB/Arbitrum), Memo Activity, **Batch Transactions**,
-+ **API Pública** (`/api/public-stats`).
+10 abas em produção: Dashboard, Reports, Compare, Anomalies, Network Status (+ Faucet Tracker),
+Dev Dashboard, Networks, Memo Activity, Batch Transactions, **🔗 Chainlink Monitor** (nova).
++ API Pública (`/api/public-stats`) + Alertas Discord (confiabilidade + anomalia de rede).
 
 9 abas em `page.tsx`: Dashboard, Reports (AI Report + Uptime History), Compare, Anomalies,
 Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator), Dev Dashboard
@@ -82,6 +80,14 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   (dados brutos paginados, params `limit` até 100 e `days` até 30). Usa `ANON_KEY` (não a
   `SERVICE_KEY`) — princípio de menor privilégio. Autodocumentada via campo `meta` em cada resposta.
   Validado em produção: `{"ok":true,"endpoint":"summary","last_7d":{"snapshots":9,"avg_health_score":96},...}`
+- **Chainlink/CCIP Monitor — concluído (03/07).** Nova aba "🔗 Chainlink" monitorando os contratos
+  do Chainlink Scale (anunciado em 30/06). Verifica via `typeAndVersion()` e `isCursed()` se o CCIP
+  Router e ARM Proxy estão ativos, mostra o Chain Selector oficial da Arc (`3034092155422581607`),
+  lista todos os endereços de contrato com links pro block explorer, e escaneia os últimos 1000 blocos
+  em busca de txs enviadas ao CCIP Router. Validado em produção: Router 1.2.0 ativo, ARMProxy 1.0.0
+  respondendo, 0 txs CCIP (Arc entrou no Scale em 30/06 — dashboard pronto pra capturar quando
+  começar atividade). Fix necessário pós-deploy: ARM `isCursed()` retornava `0x` vazio sendo
+  interpretado como `null` (Unknown) em vez de `false` (Active) — corrigido no commit `fab5b5a`.
 
 **Pendências abertas:**
 - Localizar e limpar o projeto Supabase órfão associado ao `arc-pulse` (free tier permite só 2
@@ -137,13 +143,12 @@ Todos os itens planejados foram implementados e validados em produção.
 
 ## 💡 Próximas ideias (a priorizar)
 
-1. **Oracle & CCIP Monitor (NOVO — alta prioridade)** — monitorar atividade Chainlink na Arc:
-   mensagens cross-chain no CCIP Router (`0xdE4E7FED43FAC37EB21aA0643d9852f75332eab8`), Data Feed
-   updates (frequência e latência), status do ARM Proxy. Feature exclusiva que nenhum outro dashboard
-   da Arc teria — especialmente relevante agora que a Arc acabou de entrar no Chainlink Scale (30/06).
-
-2. **Apresentação para Arc House / Office Hours** — blog post e roteiro de live já prontos
+1. **Apresentação para Arc House / Office Hours** — blog post e roteiro de live já prontos
    (gerados em 01/07). Publicar em community.arc.io e apresentar no Arc Hours no Discord.
+
+2. **Data Feeds Monitor** — complemento natural ao Chainlink Monitor: quando endereços de
+   Data Feed forem publicados pra Arc Testnet, monitorar `latestRoundData()` de cada feed
+   (BTC/USD, ETH/USD, etc.) mostrando preço atual, última atualização, e frequência de heartbeat.
 
 3. **Agent Activity Monitor** — monitorar registros ERC-8004 (agentes de IA) e settlements x402
    na Arc Testnet, no mesmo padrão do Memo/Batch Activity. Inspirado no spotlight da Vyper (26/06).
