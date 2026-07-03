@@ -2182,8 +2182,8 @@ const CHAINLINK_CONTRACTS = {
 
 // Minimal ABI selectors (keccak256 of function signature, first 4 bytes)
 // typeAndVersion()           → 0x181f5a77  (returns string — version identifier)
-// isBlessed(bytes32[])       → 0x9041be3d  (ARM v1)
-// isCursed()                 → 0x2e93f7ab  (ARM v2+)
+// isCursed()                 → 0x2e93f7ab  (ARM v2+ — true = CURSED, false = healthy)
+// isBlessed(bytes32[])       → 0x9041be3d  (ARM v1 — inverse logic, needs bytes32[] param)
 // balanceOf(address)         → 0x70a08231  (ERC-20 LINK balance)
 // latestRoundData()          → 0xfeaf968c  (AggregatorV3 — Data Feeds)
 // description()              → 0x7284e416  (AggregatorV3 description string)
@@ -2209,7 +2209,9 @@ function decodeUint256(hex: string): string | null {
 }
 
 function decodeBool(hex: string): boolean | null {
-  if (!hex || hex === '0x') return null
+  // '0x' empty response = the call returned but with no data, treat as false
+  // (ARM isCursed() returns false = not cursed = healthy)
+  if (!hex || hex === '0x' || hex === '0x' + '0'.repeat(64)) return false
   try {
     const trimmed = hex.slice(2).replace(/^0+/, '')
     return trimmed !== '' && trimmed !== '0'
@@ -2303,7 +2305,7 @@ function ChainlinkMonitorTab() {
     ? 'Active (not cursed)'
     : status?.armProxyCursed === true
       ? '⚠️ CURSED'
-      : 'Unknown'
+      : 'Checking...'
 
   return (
     <div>
