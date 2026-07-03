@@ -2166,6 +2166,288 @@ function BatchTransactionsTab() {
   )
 }
 
+// ─── CHAINLINK / CCIP MONITOR ────────────────────────────────────
+// Contract addresses confirmed from:
+//   discord.com/channels/arc (announcement 30/06/2026)
+//   docs.chain.link/resources/link-token-contracts#arc-network
+const CHAINLINK_CONTRACTS = {
+  ccipRouter:              '0xdE4E7FED43FAC37EB21aA0643d9852f75332eab8',
+  armProxy:                '0xD610B8f58689de7755947C05342A2DFaC30ebD57',
+  tokenAdminRegistry:      '0xd3e461C55676B10634a5F81b747c324B85686Dd1',
+  registryModuleOwner:     '0x524B83ae8208490151339c626fd0E35b964483e3',
+  ccipConfig:              '0x3F1f176e347235858DD6Db905DDBA09Eaf25478a',
+  linkToken:               '0x3F1f176e347235858DD6Db905DDBA09Eaf25478a', // same as ccipConfig per Chainlink docs
+  chainSelector:           '3034092155422581607',
+}
+
+// Minimal ABI selectors (keccak256 of function signature, first 4 bytes)
+// typeAndVersion()           → 0x181f5a77  (returns string — version identifier)
+// isBlessed(bytes32[])       → 0x9041be3d  (ARM v1)
+// isCursed()                 → 0x2e93f7ab  (ARM v2+)
+// balanceOf(address)         → 0x70a08231  (ERC-20 LINK balance)
+// latestRoundData()          → 0xfeaf968c  (AggregatorV3 — Data Feeds)
+// description()              → 0x7284e416  (AggregatorV3 description string)
+const SEL = {
+  typeAndVersion: '0x181f5a77',
+  isCursed:       '0x2e93f7ab',
+  balanceOf:      '0x70a08231',
+}
+
+function decodeString(hex: string): string {
+  if (!hex || hex === '0x') return ''
+  try {
+    // ABI-encoded string: skip first 32 bytes (offset), next 32 bytes = length, rest = data
+    const data = hex.slice(2)
+    const len = parseInt(data.slice(64, 128), 16)
+    return Buffer.from(data.slice(128, 128 + len * 2), 'hex').toString('utf8').replace(/\x00/g, '').trim()
+  } catch { return '' }
+}
+
+function decodeUint256(hex: string): string | null {
+  if (!hex || hex === '0x') return null
+  try { return String(parseInt(hex.slice(2).slice(-64), 16)) } catch { return null }
+}
+
+function decodeBool(hex: string): boolean | null {
+  if (!hex || hex === '0x') return null
+  try {
+    const trimmed = hex.slice(2).replace(/^0+/, '')
+    return trimmed !== '' && trimmed !== '0'
+  } catch { return null }
+}
+
+interface ChainlinkStatus {
+  ccipRouterVersion: string
+  armProxyCursed: boolean | null
+  armProxyVersion: string
+  linkTotalSupplyRaw: string | null
+  recentCcipTxs: { hash: string; block: number; timestamp: number }[]
+  blocksScanned: number
+}
+
+function ChainlinkMonitorTab() {
+  const [status, setStatus] = useState<ChainlinkStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  async function load() {
+    setLoading(true)
+    try {
+      // 1. Check contract versions and ARM curse state — low-cost view calls
+      const [routerVer, armVer, armCursed] = await Promise.all([
+        rpcCall('eth_call', [{ to: CHAINLINK_CONTRACTS.ccipRouter, data: SEL.typeAndVersion }, 'latest']),
+        rpcCall('eth_call', [{ to: CHAINLINK_CONTRACTS.armProxy, data: SEL.typeAndVersion }, 'latest']),
+        rpcCall('eth_call', [{ to: CHAINLINK_CONTRACTS.armProxy, data: SEL.isCursed }, 'latest']),
+      ])
+
+      // 2. Scan recent blocks for CCIP Router activity (txs sent TO the router)
+      // CCIP messages go through the Router, so any tx with router as the target
+      // is a cross-chain send or receive operation.
+      const blockHex = await rpcCall('eth_blockNumber')
+      const latest = hexToNum(blockHex)
+      const SCAN_RANGE = 1000
+      const fromBlock = Math.max(0, latest - SCAN_RANGE)
+
+      const allBlockNums = Array.from(
+        { length: latest - fromBlock + 1 },
+        (_, i) => fromBlock + i
+      )
+
+      const recentCcipTxs: ChainlinkStatus['recentCcipTxs'] = []
+      const BATCH = 50
+      for (let i = 0; i < allBlockNums.length; i += BATCH) {
+        const chunk = allBlockNums.slice(i, i + BATCH)
+        const blocks = await Promise.all(
+          chunk.map(n =>
+            rpcCall('eth_getBlockByNumber', ['0x' + n.toString(16), true]).catch(() => null)
+          )
+        )
+        for (const block of blocks) {
+          if (!block?.transactions) continue
+          for (const tx of block.transactions) {
+            if (tx.to?.toLowerCase() === CHAINLINK_CONTRACTS.ccipRouter.toLowerCase()) {
+              recentCcipTxs.push({
+                hash: tx.hash,
+                block: hexToNum(block.number),
+                timestamp: hexToNum(block.timestamp),
+              })
+            }
+          }
+        }
+        // Stop early if we already have plenty
+        if (recentCcipTxs.length >= 20) break
+      }
+
+      setStatus({
+        ccipRouterVersion: decodeString(routerVer),
+        armProxyVersion:   decodeString(armVer),
+        armProxyCursed:    decodeBool(armCursed),
+        linkTotalSupplyRaw: null,
+        recentCcipTxs: recentCcipTxs.sort((a, b) => b.timestamp - a.timestamp).slice(0, 10),
+        blocksScanned: SCAN_RANGE,
+      })
+    } catch (e) {
+      console.error(e)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  const armColor = status?.armProxyCursed === false
+    ? '#1D9E75'
+    : status?.armProxyCursed === true
+      ? '#ef4444'
+      : '#475569'
+
+  const armLabel = status?.armProxyCursed === false
+    ? 'Active (not cursed)'
+    : status?.armProxyCursed === true
+      ? '⚠️ CURSED'
+      : 'Unknown'
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>Chainlink on Arc</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            CCIP Router · ARM Proxy · Cross-chain activity — Arc joined Chainlink Scale on June 30, 2026
+          </div>
+        </div>
+        <button onClick={load} disabled={loading}
+          style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #1e1e2e', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
+          ↻ Refresh
+        </button>
+      </div>
+
+      {/* Chainlink Scale info banner */}
+      <div style={{ background: '#0c1a2e', border: '1px solid #375BD244', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: '#375BD2', marginBottom: 6 }}>🔗 Chainlink Scale Program</div>
+        <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.7 }}>
+          Arc joined Chainlink Scale, giving builders access to enterprise-grade oracle and interoperability infrastructure.
+          Available on Arc Testnet: <span style={{ color: '#94a3b8' }}>CCIP</span> (cross-chain messaging),{' '}
+          <span style={{ color: '#94a3b8' }}>Data Feeds</span> (price data),{' '}
+          <span style={{ color: '#94a3b8' }}>Data Streams</span> (low-latency market data),{' '}
+          <span style={{ color: '#94a3b8' }}>Proof of Reserve</span> (collateral verification).
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '3rem' }}>
+          Checking Chainlink contracts on Arc Testnet...
+        </div>
+      ) : status ? (
+        <>
+          {/* Contract status cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: '1.25rem' }}>
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>CCIP Router</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: status.ccipRouterVersion ? '#1D9E75' : '#ef4444' }}>
+                {status.ccipRouterVersion || 'No response'}
+              </div>
+              <div style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace', marginTop: 4 }}>
+                {CHAINLINK_CONTRACTS.ccipRouter.slice(0, 10)}...{CHAINLINK_CONTRACTS.ccipRouter.slice(-6)}
+              </div>
+            </div>
+
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>ARM Proxy (Risk Manager)</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: armColor }}>{armLabel}</div>
+              <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>{status.armProxyVersion || '—'}</div>
+            </div>
+
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Chain Selector</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#375BD2', fontFamily: 'monospace' }}>
+                {CHAINLINK_CONTRACTS.chainSelector}
+              </div>
+              <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>Arc Testnet CCIP identifier</div>
+            </div>
+
+            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>CCIP Txs Found</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: '#375BD2' }}>{status.recentCcipTxs.length}</div>
+              <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>last {status.blocksScanned} blocks</div>
+            </div>
+          </div>
+
+          {/* Contract addresses reference */}
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem', marginBottom: '1.25rem' }}>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+              Contract Addresses (Arc Testnet)
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[
+                { label: 'CCIP Router',               addr: CHAINLINK_CONTRACTS.ccipRouter },
+                { label: 'ARM Proxy',                 addr: CHAINLINK_CONTRACTS.armProxy },
+                { label: 'Token Admin Registry',      addr: CHAINLINK_CONTRACTS.tokenAdminRegistry },
+                { label: 'Registry Module Owner',     addr: CHAINLINK_CONTRACTS.registryModuleOwner },
+                { label: 'CCIP Config / LINK Token',  addr: CHAINLINK_CONTRACTS.ccipConfig },
+              ].map(({ label, addr }) => (
+                <div key={addr} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, gap: 12 }}>
+                  <span style={{ color: '#64748b' }}>{label}</span>
+                  <a href={`https://testnet.arcscan.app/address/${addr}`} target="_blank" rel="noopener noreferrer"
+                    style={{ color: '#375BD2', fontFamily: 'monospace', textDecoration: 'none' }}>
+                    {addr.slice(0, 10)}...{addr.slice(-6)} ↗
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent CCIP txs */}
+          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
+            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>
+              Recent CCIP Router Transactions
+            </div>
+            {status.recentCcipTxs.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#f1f5f9', marginBottom: 6 }}>No CCIP transactions yet</div>
+                <div style={{ fontSize: 12, color: '#475569', maxWidth: 400, margin: '0 auto' }}>
+                  Arc joined Chainlink Scale on June 30, 2026. Be one of the first builders to send a cross-chain message via CCIP on Arc Testnet!
+                </div>
+                <a href="https://docs.chain.link/ccip/tutorials/evm/send-arbitrary-data" target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'inline-block', marginTop: 12, fontSize: 12, color: '#375BD2' }}>
+                  Chainlink CCIP Tutorial ↗
+                </a>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ color: '#475569', fontSize: 11, textTransform: 'uppercase' }}>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Tx Hash</th>
+                    <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Block</th>
+                    <th style={{ textAlign: 'right', paddingBottom: 8, fontWeight: 500 }}>Age</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {status.recentCcipTxs.map(tx => (
+                    <tr key={tx.hash} style={{ borderTop: '1px solid #1e1e2e' }}>
+                      <td style={{ padding: '8px 0' }}>
+                        <a href={`https://testnet.arcscan.app/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
+                          style={{ color: '#375BD2', textDecoration: 'none', fontFamily: 'monospace' }}>
+                          {tx.hash.slice(0, 10)}...{tx.hash.slice(-6)} ↗
+                        </a>
+                      </td>
+                      <td style={{ padding: '8px 0', color: '#1D9E75' }}>#{tx.block.toLocaleString()}</td>
+                      <td style={{ padding: '8px 0', textAlign: 'right', color: '#64748b' }}>{timeAgo(tx.timestamp)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 13, color: '#ef4444', textAlign: 'center', padding: '2rem' }}>
+          Failed to load Chainlink data. Please refresh.
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── NETWORK SCORE ────────────────────────────────────────────────
 function calcScore(blockTime: number, latency: number, gasStability: number) {
   if (blockTime === 0 && latency === 0) return null
@@ -2185,7 +2467,7 @@ function scoreLabel(score: number | null) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function Home() {
-  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev' | 'networks' | 'memos' | 'batches'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev' | 'networks' | 'memos' | 'batches' | 'chainlink'>('dashboard')
   const { data } = useArcData()
 
   // Self-heal: Vercel's Hobby-plan cron does not retry a failed invocation, so a
@@ -2224,6 +2506,7 @@ export default function Home() {
     { id: 'networks', label: '🌐 Networks' },
     { id: 'memos', label: '📋 Memo Activity' },
     { id: 'batches', label: '📦 Batch Transactions' },
+    { id: 'chainlink', label: '🔗 Chainlink' },
   ] as const
 
   return (
@@ -2282,6 +2565,7 @@ export default function Home() {
       {tab === 'networks' && <NetworkComparisonTab />}
       {tab === 'memos' && <MemoActivityTab />}
       {tab === 'batches' && <BatchTransactionsTab />}
+      {tab === 'chainlink' && <ChainlinkMonitorTab />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1.5rem', fontSize: 11, color: '#334155' }}>
         <span>RPC: rpc.testnet.arc.network · Chain ID: 5042002</span>
