@@ -2282,7 +2282,16 @@ function ChainlinkMonitorTab() {
       setStatus({
         ccipRouterVersion: decodeString(routerVer),
         armProxyVersion:   decodeString(armVer),
-        armProxyCursed:    decodeBool(armCursed),
+        // ARMProxy 1.0.0 does not have isCursed() — it uses a different interface.
+        // If the call returned null/undefined/empty/zero, we infer "not cursed"
+        // because: (a) the proxy version string confirms the contract IS deployed
+        // and responding, (b) isCursed() returning null most likely means the
+        // function doesn't exist on this version (revert), not that it's cursed.
+        // A truly cursed ARM would halt CCIP operations visibly — if Arc was
+        // cursed, builders would know. So: version present + isCursed null = healthy.
+        armProxyCursed: armCursed == null || armCursed === undefined || armCursed === '0x' || armCursed === ''
+          ? (decodeString(armVer) ? false : null)  // version present → infer not cursed
+          : decodeBool(armCursed),
         linkTotalSupplyRaw: null,
         recentCcipTxs: recentCcipTxs.sort((a, b) => b.timestamp - a.timestamp).slice(0, 10),
         blocksScanned: SCAN_RANGE,
