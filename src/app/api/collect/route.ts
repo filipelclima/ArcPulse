@@ -62,14 +62,16 @@ export async function GET() {
     // anomaly, instead of re-alerting on every poll while it persists.
     let gapHours: number | null = null
     let wasAnomaly = false
+    let prevSeverity: string | null = null
     try {
       const { data: lastRows } = await supabase
         .from('network_snapshots')
-        .select('created_at, anomaly')
+        .select('created_at, anomaly, anomaly_severity')
         .order('created_at', { ascending: false })
         .limit(1)
       const lastCreatedAt = lastRows?.[0]?.created_at
       wasAnomaly = lastRows?.[0]?.anomaly === true
+      prevSeverity = lastRows?.[0]?.anomaly_severity ?? null
       if (lastCreatedAt) {
         gapHours = (Date.now() - new Date(lastCreatedAt).getTime()) / 3_600_000
       }
@@ -117,13 +119,31 @@ export async function GET() {
 
     if (error) throw error
 
+    // Severity-aware alerting — four distinct cases per Google SRE Workbook:
+    // 1. New anomaly onset (healthy → warning)
+    // 2. New anomaly onset (healthy → critical)
+    // 3. Severity escalation (warning → critical) — same "anomaly" flag, but worse
+    // 4. Recovery (any anomaly → healthy)
+    // Not alerting when already warning and stays warning (no re-spam).
     if (isAnomaly && !wasAnomaly) {
+      if (severity === 'critical') {
+        await sendDiscordAlert(
+          `🔴 **ArcPulse — CRITICAL anomaly detected**\nHealth score collapsed to **${score}/100** (threshold: <50).\nAvg block time: ${avgBlockTime.toFixed(2)}s · RPC latency: ${latency}ms · Block #${latest}.\n> Immediate attention may be required.`
+        )
+      } else {
+        await sendDiscordAlert(
+          `🟡 **ArcPulse — WARNING: network degraded**\nHealth score dropped to **${score}/100** (threshold: <70).\nAvg block time: ${avgBlockTime.toFixed(2)}s · RPC latency: ${latency}ms · Block #${latest}.\n> Monitoring closely — no action needed yet unless it worsens.`
+        )
+      }
+    } else if (isAnomaly && wasAnomaly && severity === 'critical' && prevSeverity === 'warning') {
+      // Escalation: was warning, now critical — always worth a separate alert
       await sendDiscordAlert(
-        `🔴 **ArcPulse — network anomaly detected** (${severity})\nHealth score dropped to **${score}/100**.\nAvg block time: ${avgBlockTime.toFixed(2)}s · RPC latency: ${latency}ms · Block #${latest}.`
+        `🚨 **ArcPulse — anomaly ESCALATED to CRITICAL**\nHealth score worsened from warning to **${score}/100** (threshold: <50).\nAvg block time: ${avgBlockTime.toFixed(2)}s · RPC latency: ${latency}ms · Block #${latest}.\n> Situation is deteriorating.`
       )
     } else if (!isAnomaly && wasAnomaly) {
+      const recovered = prevSeverity === 'critical' ? '🔴 critical' : '🟡 warning'
       await sendDiscordAlert(
-        `✅ **ArcPulse — network back to healthy**\nHealth score recovered to **${score}/100** — Block #${latest}.`
+        `✅ **ArcPulse — network recovered**\nHealth score back to **${score}/100** (was ${recovered}).\nBlock #${latest} — Arc Testnet is healthy again.`
       )
     }
 
