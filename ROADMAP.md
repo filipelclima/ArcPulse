@@ -3,7 +3,7 @@
 > Dashboard de monitoramento da Arc blockchain testnet. Builder: HashZero.
 > Objetivo: ganhar reputação na comunidade Arc House e conseguir o cargo de Builder/Architect.
 
-## Status atual (última atualização: 03/07/2026, sessão 3)
+## Status atual (última atualização: 07/07/2026, sessão 3)
 
 10 abas em produção: Dashboard, Reports, Compare, Anomalies, Network Status (+ Faucet Tracker),
 Dev Dashboard, Networks, Memo Activity, Batch Transactions, **🔗 Chainlink Monitor** (nova).
@@ -87,7 +87,18 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   em busca de txs enviadas ao CCIP Router. Validado em produção: Router 1.2.0 ativo, ARMProxy 1.0.0
   respondendo, 0 txs CCIP (Arc entrou no Scale em 30/06 — dashboard pronto pra capturar quando
   começar atividade). Fix necessário pós-deploy: ARM `isCursed()` retornava `0x` vazio sendo
-  interpretado como `null` (Unknown) em vez de `false` (Active) — corrigido no commit `fab5b5a`.
+  interpretado como `null` (Unknown) em vez de `false` (Active) — corrigido inferindo status pela
+  versão do contrato.
+- **SRE: alertas por severidade distintos — concluído (05/07).** Aplicando Google SRE Workbook:
+  4 casos distintos no Discord: 🟡 WARNING (score 50-69, "monitora, sem ação imediata"), 🔴 CRITICAL
+  (score <50, "atenção imediata"), 🚨 ESCALATED (warning→critical, "situação piorando"), ✅ recovered
+  (com contexto de qual severidade saiu). Busca também `anomaly_severity` do snapshot anterior pra
+  detectar escalada de severidade como evento separado.
+- **Cron externo via cron-job.org — configurado (07/07).** Terceira camada de confiabilidade de
+  coleta além do cron da Vercel (meia-noite UTC, sem retry no Hobby) e do self-heal do frontend.
+  cron-job.org chama `/api/collect` às 9:00 UTC todo dia — tem histórico de execuções com status HTTP
+  que o Vercel Hobby não oferece. Com duas chamadas automáticas/dia + self-heal, gaps de coleta de
+  múltiplos dias devem ser eliminados.
 
 **Pendências abertas:**
 - Localizar e limpar o projeto Supabase órfão associado ao `arc-pulse` (free tier permite só 2
@@ -116,6 +127,21 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   — possível ideia futura: aba "Agent Activity" monitorando registros ERC-8004 ou settlements x402, no
   mesmo padrão do Memo/Batch Activity. Ainda não implementado, só anotado.
   Fontes: community.arc.io/Arc House (blog) e arc.io/blog/building-agentic-economic-workflows-with-vyper-on-arc.
+
+- **07/07/2026 — Arc Mainnet listada no The Graph.** The Graph (protocolo de indexação
+  descentralizada mais usado no ecossistema Web3) publicou suporte à **Arc Mainnet** com:
+  - Tipo: `mainnet` (não testnet) · Chain ID: `eip155:5042` · Identificador: `arc` · Native Currency: USDC
+  - Subgraphs, Substreams e Graph Explorer já disponíveis para Arc mainnet
+  Combinado com Chainlink Scale (30/06), load test (08/07) e privacy whitepaper, sinaliza
+  **lançamento de mainnet iminente — possivelmente semanas**.
+  **Impacto pro ArcPulse:** migração testnet → mainnet = trocar URL do RPC + chain ID.
+  Toda a infraestrutura está pronta. ArcPulse pode ser o primeiro monitor de mainnet da comunidade.
+
+- **08/07/2026 — Load test planejado na Arc Testnet.** Fase de load testing para perfilar
+  performance em condições extremas. Possíveis efeitos: congestionamento, mais txs falhando,
+  fees maiores, block times mais altos, pausas momentâneas. Status page: status.arc.io.
+  ArcPulse capturou baseline antes do teste: block #50333574, health score 100 (07/07).
+  Alertas por severidade (🟡/🔴/🚨/✅ implementados em 05/07) serão testados em condição real.
 
 - **30/06/2026 — Arc x Chainlink Scale (GRANDE UPDATE).** Arc entrou no programa Chainlink Scale —
   infraestrutura enterprise de oráculos e interoperabilidade cross-chain agora disponível na Arc Testnet.
