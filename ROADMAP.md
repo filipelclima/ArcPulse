@@ -128,6 +128,41 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   mesmo padrão do Memo/Batch Activity. Ainda não implementado, só anotado.
   Fontes: community.arc.io/Arc House (blog) e arc.io/blog/building-agentic-economic-workflows-with-vyper-on-arc.
 
+- **09/07/2026 — Arc x Pulsar (consumer stablecoin money app).** Pulsar está construindo um
+  app consumer de movimentação de dinheiro stablecoin-native na Arc Testnet — não como feature
+  isolada, mas com Arc como camada de settlement central. Fluxos: USDC e EURC em balances,
+  pagamentos, atividade de cartão, FX e multi-currency. Usa CCTP e gas abstraction como
+  infraestrutura de fundo. É um spotlight pré-launch (rollout em fases).
+  Contexto estratégico: a maioria do ecossistema Arc é infraestrutura (liquidez, lending, wallets,
+  compliance, tooling). Pulsar é o primeiro parceiro relevante do lado **consumer** — traz usuários
+  finais pra atividade Arc-native, não só builders. Para a Arc, isso é diferente: é distribuição
+  real para pessoas que vão segurar, mover, gastar e receber USDC/EURC sem saber que estão na Arc.
+  Fonte: community.arc.io/home/blogs/arc-x-pulsar-consumer-stablecoin-money-movement-on-arc-2026-07-09
+  **Impacto pro ArcPulse:** quando o Pulsar lançar e começar a gerar volume de txs, o ArcPulse
+  vai capturar esse aumento no `tx_count` dos snapshots — uma forma indireta de medir a tração
+  do produto. Mais relevante no longo prazo: se os endereços de contrato do Pulsar forem públicos,
+  dá pra adicionar um card de "Pulsar Activity" no Network Status similar ao que fizemos com os
+  contratos Chainlink. Ainda cedo, só anotado.
+
+- **08/07/2026 — Tradable joins Arc Builders Fund.** Tradable — segunda maior plataforma de
+  private credit onchain, com $2B+ em 37 deals ativos e $315M em transações no marketplace —
+  está expandindo para a Arc Testnet com suporte do Arc Builders Fund. Traz contratos inteligentes
+  para ciclo completo de deals (issuance, compliance AML/KYC/KYB/KYT, distribuições, cashflows).
+  Relevância: confirma que a Arc está atraindo projetos institucionais sérios de RWA/private credit,
+  não só DeFi de varejo. A Arc é purpose-built pra isso (USDC como gas, fees previsíveis, sub-second
+  finality). **Impacto pro ArcPulse:** possível futura aba "RWA/Credit Activity" monitorando
+  contratos do Tradable (deal issuance, distribuições, compliance events) — ainda muito cedo,
+  endereços de contrato não foram publicados. Só anotado.
+  Fonte: community.arc.io/home/blogs/ (Arc House post)
+
+- **08/07/2026 — Incidente Supabase (JWT errors + project creation delays).** Dois incidentes
+  simultâneos no Supabase em 08/07: "Elevated JWT authorization errors" (18:37 UTC) afetando
+  autenticação em edge functions, e "Project creation delays in AP regions". O JWT error afeta
+  diretamente o ArcPulse — `/api/collect` usa `SUPABASE_SERVICE_KEY` para autenticar inserts.
+  Causa provável do gap de 76h recente (antes do cron-job.org ser configurado). Limitação do
+  free tier: sem SLA de disponibilidade. Nenhuma ação necessária do nosso lado — monitorar
+  status.supabase.com quando aparecerem gaps no Discord.
+
 - **07/07/2026 — Arc Mainnet listada no The Graph.** The Graph (protocolo de indexação
   descentralizada mais usado no ecossistema Web3) publicou suporte à **Arc Mainnet** com:
   - Tipo: `mainnet` (não testnet) · Chain ID: `eip155:5042` · Identificador: `arc` · Native Currency: USDC
