@@ -16,16 +16,23 @@ const STALE_GAP_HOURS = 26
 
 async function sendDiscordAlert(message: string) {
   const webhook = process.env.DISCORD_WEBHOOK_URL
-  if (!webhook) return // not configured — skip silently, don't fail the request over it
-  try {
-    await fetch(webhook, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: message }),
-    })
-  } catch {
-    // best-effort only — a failed alert should never break /api/collect itself
+  if (!webhook) return
+  // Retry once — if the first attempt fails (e.g. transient network hiccup
+  // during a Supabase incident), a second attempt 2s later usually succeeds
+  // since the webhook target (Discord) is independent of Supabase.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(webhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: message }),
+      })
+      if (res.ok) return
+    } catch { /* fall through to retry */ }
+    if (attempt === 0) await new Promise(r => setTimeout(r, 2000))
   }
+  // If both attempts fail, there's nothing more we can do — swallow silently
+  // so a broken webhook never breaks /api/collect itself.
 }
 
 async function rpcCall(method: string, params: unknown[] = []) {
@@ -75,8 +82,14 @@ export async function GET() {
       if (lastCreatedAt) {
         gapHours = (Date.now() - new Date(lastCreatedAt).getTime()) / 3_600_000
       }
-    } catch {
-      // if even the read fails, we'll find out below when the insert is attempted
+    } catch (readErr) {
+      // Supabase read failed (auth error, connection issue, etc.) — alert immediately
+      // so we know the DB is unreachable even before the insert attempt confirms it.
+      await sendDiscordAlert(
+        `⚠️ **ArcPulse — Supabase read failed**\nCould not query \`network_snapshots\` — Supabase may be unreachable or experiencing an incident.\nError: \`${String(readErr).slice(0, 300)}\`\nCheck https://status.supabase.com`
+      )
+      // Don't abort — continue so the insert attempt also runs and its error
+      // goes through the main catch, which sends a second more specific alert.
     }
 
     const { result: blockHex, latency } = await rpcCall('eth_blockNumber')
