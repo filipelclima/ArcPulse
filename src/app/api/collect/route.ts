@@ -97,7 +97,9 @@ export async function GET() {
     const { result: chainHex } = await rpcCall('eth_chainId')
     const { result: gasHex } = await rpcCall('eth_gasPrice')
 
-    const blockNums = Array.from({ length: 10 }, (_, i) => latest - 9 + i)
+    // Expanded from 10 to 50 blocks — 49 intervals give statistically meaningful
+    // percentiles (p95 of 9 samples is basically just max; p95 of 49 is real signal).
+    const blockNums = Array.from({ length: 50 }, (_, i) => latest - 49 + i)
     const rawBlocks = await Promise.all(
       blockNums.map(n =>
         rpcCall('eth_getBlockByNumber', ['0x' + n.toString(16), false]).then(r => r.result)
@@ -113,6 +115,19 @@ export async function GET() {
     }
     const avgBlockTime = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : 0
 
+    // Percentile helper — sorts a copy and picks the value at the given rank.
+    // Uses nearest-rank method (simple, no interpolation needed for monitoring).
+    function percentile(arr: number[], p: number): number {
+      if (arr.length === 0) return 0
+      const sorted = [...arr].sort((a, b) => a - b)
+      const idx = Math.ceil((p / 100) * sorted.length) - 1
+      return sorted[Math.max(0, idx)]
+    }
+
+    const p50 = percentile(times, 50)
+    const p95 = percentile(times, 95)
+    const p99 = percentile(times, 99)
+
     const score = calcScore(avgBlockTime, latency)
     const severity = getSeverity(score)
     const isAnomaly = severity !== null
@@ -121,6 +136,9 @@ export async function GET() {
       created_at: new Date().toISOString(),
       block_number: latest,
       block_time_avg: parseFloat(avgBlockTime.toFixed(3)),
+      block_time_p50: parseFloat(p50.toFixed(3)),
+      block_time_p95: parseFloat(p95.toFixed(3)),
+      block_time_p99: parseFloat(p99.toFixed(3)),
       gas_price: parseFloat((hexToNum(gasHex) / 1e9).toFixed(4)),
       rpc_latency: latency,
       tx_count: totalTx,
@@ -175,7 +193,7 @@ export async function GET() {
       )
     }
 
-    return NextResponse.json({ success: true, block: latest, score, anomaly: isAnomaly, severity })
+    return NextResponse.json({ success: true, block: latest, score, anomaly: isAnomaly, severity, block_time_avg: parseFloat(avgBlockTime.toFixed(3)), block_time_p50: parseFloat(p50.toFixed(3)), block_time_p95: parseFloat(p95.toFixed(3)), block_time_p99: parseFloat(p99.toFixed(3)) })
   } catch (e) {
     await sendDiscordAlert(`🔴 **ArcPulse — /api/collect failed**\n\`\`\`${String(e).slice(0, 500)}\`\`\``)
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 })
