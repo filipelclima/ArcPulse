@@ -117,7 +117,7 @@ export async function GET() {
     const severity = getSeverity(score)
     const isAnomaly = severity !== null
 
-    const { error } = await supabase.from('network_snapshots').insert({
+    const { error, status, statusText } = await supabase.from('network_snapshots').insert({
       created_at: new Date().toISOString(),
       block_number: latest,
       block_time_avg: parseFloat(avgBlockTime.toFixed(3)),
@@ -130,7 +130,16 @@ export async function GET() {
       anomaly_severity: severity,
     })
 
-    if (error) throw error
+    // Supabase JS client returns error object rather than throwing — check explicitly.
+    // Also check HTTP status: a 2xx with error=null is success; anything else is a failure
+    // that must be treated as an error (JWT issues, network problems, etc. can cause
+    // the client to return error:null but still not persist the row).
+    if (error) {
+      throw new Error(`Supabase insert error [${status} ${statusText}]: ${error.message} (code: ${error.code})`)
+    }
+    if (status && status >= 300) {
+      throw new Error(`Supabase insert returned HTTP ${status} ${statusText} — row may not have been persisted`)
+    }
 
     // Severity-aware alerting — four distinct cases per Google SRE Workbook:
     // 1. New anomaly onset (healthy → warning)
