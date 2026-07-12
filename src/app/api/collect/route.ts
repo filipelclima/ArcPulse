@@ -61,6 +61,15 @@ function getSeverity(score: number): string | null {
   return null
 }
 
+// Percentile helper — nearest-rank method. Sorts a copy; no interpolation needed
+// for monitoring use cases (we want a real observed value, not an estimate).
+function blockTimePercentile(arr: number[], p: number): number {
+  if (arr.length === 0) return 0
+  const sorted = [...arr].sort((a, b) => a - b)
+  const idx = Math.ceil((p / 100) * sorted.length) - 1
+  return sorted[Math.max(0, idx)]
+}
+
 export async function GET() {
   try {
     // Check the previous snapshot's gap *and* anomaly state before inserting
@@ -115,18 +124,9 @@ export async function GET() {
     }
     const avgBlockTime = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : 0
 
-    // Percentile helper — sorts a copy and picks the value at the given rank.
-    // Uses nearest-rank method (simple, no interpolation needed for monitoring).
-    function percentile(arr: number[], p: number): number {
-      if (arr.length === 0) return 0
-      const sorted = [...arr].sort((a, b) => a - b)
-      const idx = Math.ceil((p / 100) * sorted.length) - 1
-      return sorted[Math.max(0, idx)]
-    }
-
-    const p50 = percentile(times, 50)
-    const p95 = percentile(times, 95)
-    const p99 = percentile(times, 99)
+    const p50 = blockTimePercentile(times, 50)
+    const p95 = blockTimePercentile(times, 95)
+    const p99 = blockTimePercentile(times, 99)
 
     const score = calcScore(avgBlockTime, latency)
     const severity = getSeverity(score)
