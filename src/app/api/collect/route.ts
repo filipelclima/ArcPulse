@@ -63,11 +63,31 @@ function getSeverity(score: number): string | null {
 
 // Percentile helper — nearest-rank method. Sorts a copy; no interpolation needed
 // for monitoring use cases (we want a real observed value, not an estimate).
-function blockTimePercentile(arr: number[], p: number): number {
+function latencyPercentile(arr: number[], p: number): number {
   if (arr.length === 0) return 0
   const sorted = [...arr].sort((a, b) => a - b)
   const idx = Math.ceil((p / 100) * sorted.length) - 1
   return sorted[Math.max(0, idx)]
+}
+
+// Measure RPC latency N times in parallel and return all samples.
+// Parallel (not sequential) so the total wall-clock overhead stays low —
+// 10 parallel pings add ~1 RPC round-trip of latency, not 10x.
+// Uses eth_blockNumber as the probe (lightest possible call, no computation).
+async function sampleRpcLatencies(n: number): Promise<number[]> {
+  const results = await Promise.allSettled(
+    Array.from({ length: n }, () => {
+      const t0 = Date.now()
+      return fetch(RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_blockNumber', params: [] }),
+      }).then(r => r.json()).then(() => Date.now() - t0)
+    })
+  )
+  return results
+    .filter((r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled')
+    .map(r => r.value)
 }
 
 export async function GET() {
@@ -101,13 +121,24 @@ export async function GET() {
       // goes through the main catch, which sends a second more specific alert.
     }
 
-    const { result: blockHex, latency } = await rpcCall('eth_blockNumber')
+    const { result: blockHex, latency: firstLatency } = await rpcCall('eth_blockNumber')
     const latest = hexToNum(blockHex)
     const { result: chainHex } = await rpcCall('eth_chainId')
     const { result: gasHex } = await rpcCall('eth_gasPrice')
 
-    // Expanded from 10 to 50 blocks — 49 intervals give statistically meaningful
-    // percentiles (p95 of 9 samples is basically just max; p95 of 49 is real signal).
+    // Sample RPC latency 10 times in parallel — gives real p50/p95/p99 with
+    // millisecond precision. block.timestamp is integer seconds so block-time
+    // percentiles have no sub-second resolution on EVM chains; latency does.
+    // The first sample (firstLatency) is already measured above, add 9 more.
+    const extraLatencies = await sampleRpcLatencies(9)
+    const allLatencies = [firstLatency, ...extraLatencies]
+    const latency = Math.round(allLatencies.reduce((a, b) => a + b, 0) / allLatencies.length)
+    const latencyP50 = latencyPercentile(allLatencies, 50)
+    const latencyP95 = latencyPercentile(allLatencies, 95)
+    const latencyP99 = latencyPercentile(allLatencies, 99)
+
+    // Keep 50-block window for avg block time (accurate average), but drop
+    // block-time percentiles — integer-second timestamps make them meaningless.
     const blockNums = Array.from({ length: 50 }, (_, i) => latest - 49 + i)
     const rawBlocks = await Promise.all(
       blockNums.map(n =>
@@ -124,10 +155,6 @@ export async function GET() {
     }
     const avgBlockTime = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : 0
 
-    const p50 = blockTimePercentile(times, 50)
-    const p95 = blockTimePercentile(times, 95)
-    const p99 = blockTimePercentile(times, 99)
-
     const score = calcScore(avgBlockTime, latency)
     const severity = getSeverity(score)
     const isAnomaly = severity !== null
@@ -136,11 +163,11 @@ export async function GET() {
       created_at: new Date().toISOString(),
       block_number: latest,
       block_time_avg: parseFloat(avgBlockTime.toFixed(3)),
-      block_time_p50: parseFloat(p50.toFixed(3)),
-      block_time_p95: parseFloat(p95.toFixed(3)),
-      block_time_p99: parseFloat(p99.toFixed(3)),
       gas_price: parseFloat((hexToNum(gasHex) / 1e9).toFixed(4)),
       rpc_latency: latency,
+      rpc_latency_p50: latencyP50,
+      rpc_latency_p95: latencyP95,
+      rpc_latency_p99: latencyP99,
       tx_count: totalTx,
       chain_id: hexToNum(chainHex),
       health_score: score,
@@ -193,7 +220,7 @@ export async function GET() {
       )
     }
 
-    return NextResponse.json({ success: true, block: latest, score, anomaly: isAnomaly, severity, block_time_avg: parseFloat(avgBlockTime.toFixed(3)), block_time_p50: parseFloat(p50.toFixed(3)), block_time_p95: parseFloat(p95.toFixed(3)), block_time_p99: parseFloat(p99.toFixed(3)) })
+    return NextResponse.json({ success: true, block: latest, score, anomaly: isAnomaly, severity, block_time_avg: parseFloat(avgBlockTime.toFixed(3)), rpc_latency_avg: latency, rpc_latency_p50: latencyP50, rpc_latency_p95: latencyP95, rpc_latency_p99: latencyP99 })
   } catch (e) {
     await sendDiscordAlert(`🔴 **ArcPulse — /api/collect failed**\n\`\`\`${String(e).slice(0, 500)}\`\`\``)
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 })
