@@ -1,6 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
+// CRITICAL: this route must never be cached — every invocation must run the
+// full collection pipeline and insert a new snapshot. Without force-dynamic,
+// Next.js 14 can cache GET handlers in production, causing the Vercel CDN to
+// return a stale response (same block number, no new insert) for hours.
+export const dynamic = 'force-dynamic'
+
 const RPC = 'https://rpc.testnet.arc.network'
 
 const supabase = createClient(
@@ -220,7 +226,10 @@ export async function GET() {
       )
     }
 
-    return NextResponse.json({ success: true, block: latest, score, anomaly: isAnomaly, severity, block_time_avg: parseFloat(avgBlockTime.toFixed(3)), rpc_latency_avg: latency, rpc_latency_p50: latencyP50, rpc_latency_p95: latencyP95, rpc_latency_p99: latencyP99 })
+    return NextResponse.json(
+      { success: true, block: latest, score, anomaly: isAnomaly, severity, block_time_avg: parseFloat(avgBlockTime.toFixed(3)), rpc_latency_avg: latency, rpc_latency_p50: latencyP50, rpc_latency_p95: latencyP95, rpc_latency_p99: latencyP99 },
+      { headers: { 'Cache-Control': 'no-store' } }
+    )
   } catch (e) {
     await sendDiscordAlert(`🔴 **ArcPulse — /api/collect failed**\n\`\`\`${String(e).slice(0, 500)}\`\`\``)
     return NextResponse.json({ success: false, error: String(e) }, { status: 500 })
