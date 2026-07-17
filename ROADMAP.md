@@ -128,6 +128,23 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   mesmo padrão do Memo/Batch Activity. Ainda não implementado, só anotado.
   Fontes: community.arc.io/Arc House (blog) e arc.io/blog/building-agentic-economic-workflows-with-vyper-on-arc.
 
+- **16/07/2026 — Arc Brand Guidelines & Partner Toolkit live.** A Arc publicou diretrizes
+  oficiais de marca para builders e parceiros. Pontos principais:
+  - **Linguagem aprovada:** "Built on Arc", "Available on Arc", "Supports Arc", "Live on Arc"
+  - **Evitar:** apresentar seu app como "Arc", modificar o logo Arc, usar o logo Arc como
+    identidade do seu app, linguagem que sugira endorsement além do relacionamento aprovado
+  - **Regra principal:** sua marca lidera, Arc é a infraestrutura
+  - Perguntas sobre uso de marca: trademarks@circle.com
+  - Brand kit: arc.io/brand-guidelines-and-partner-toolkit
+  Fonte: community.arc.io/home/blogs/arc-brand-guidelines-and-partner-toolkit-is-live-2026-07-16
+  **Impacto direto pro ArcPulse:** revisar todos os textos do dashboard e blog post para
+  garantir conformidade. O nome "ArcPulse" é seguro (marca própria). Textos como
+  "Arc Testnet · Network Health Monitor" no header estão ok. Evitar qualquer framing que
+  sugira que o ArcPulse é um produto oficial da Arc. No blog post/apresentação, usar
+  "Built on Arc" em vez de qualquer linguagem ambígua. Checar logo usage — se o
+  `Arc_Logo.png` na pasta `public` for o logo oficial da Arc, verificar se o uso atual
+  está dentro das diretrizes (deve aparecer como referência, não como identidade do ArcPulse).
+
 - **09/07/2026 — Arc x Pulsar (consumer stablecoin money app).** Pulsar está construindo um
   app consumer de movimentação de dinheiro stablecoin-native na Arc Testnet — não como feature
   isolada, mas com Arc como camada de settlement central. Fluxos: USDC e EURC em balances,
