@@ -128,6 +128,17 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   mesmo padrão do Memo/Batch Activity. Ainda não implementado, só anotado.
   Fontes: community.arc.io/Arc House (blog) e arc.io/blog/building-agentic-economic-workflows-with-vyper-on-arc.
 
+- **21/07/2026 — Arc Open Source Showcase (Canteen).** A Canteen lançou um showcase de
+  projetos open source do ecossistema Arc: arc-showcase.thecanteenapp.com — codebases que
+  outros builders podem fazer fork, importar e construir em cima. Call for submissions:
+  projetos bem documentados que expõem primitivos reutilizáveis. Exemplo citado: Mimir
+  (github.com/enliven17/mimir) — paywall para blogs em USDC.
+  Conselho da comunidade: evitar DEX/swap/staking/pools (saturado, Tim B. da Circle reclamou).
+  **Análise pro ArcPulse:** já se encaixa perfeitamente no perfil do Showcase — open source ✅,
+  expõe primitivos reutilizáveis via API pública ✅, não é DEX/swap ✅, bem documentado ✅.
+  **Ação recomendada:** submeter o ArcPulse em arc-showcase.thecanteenapp.com — aumenta
+  visibilidade na comunidade e reforça o posicionamento como infraestrutura/tooling.
+
 - **16/07/2026 — Arc Brand Guidelines & Partner Toolkit live.** A Arc publicou diretrizes
   oficiais de marca para builders e parceiros. Pontos principais:
   - **Linguagem aprovada:** "Built on Arc", "Available on Arc", "Supports Arc", "Live on Arc"
