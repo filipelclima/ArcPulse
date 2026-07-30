@@ -29,11 +29,16 @@ Dashboard de monitoramento da Arc blockchain testnet. Builder: HashZero. Objetiv
 4. **Manter dependências fixadas em versões exatas** (sem `^` ou `~`) ao adicionar ou atualizar pacotes.
 5. **Nunca usar atalhos que escondem erros** (`ignoreBuildErrors`, `@ts-nocheck`, etc.) — sempre corrigir a causa raiz.
 
+## Testes
+
+- Vitest `4.1.10` + Testing Library, ambiente `jsdom`. Config em `vitest.config.mts` / `vitest.setup.mts` (extensão `.mts` de propósito: o `tsconfig.json` deste projeto usa `include: ["**/*.ts", "**/*.tsx"]` sem exclusão de testes, e um `.ts`/`.tsx` normal entraria no type-check do `next build`; `.mts` não bate nesse glob, então a config de teste fica isolada do build de produção).
+- **Ainda não há teste de exemplo escrito.** As funções puras candidatas mais óbvias (`toCSV`, `exportCSV`, `exportJSON`, `downloadFile` em `src/app/page.tsx`) não são exportadas do módulo — escrever um teste pra elas exigiria adicionar `export`, e essa sessão foi instruída a não tocar em nenhum código existente (produção real, sem tocar no que já funciona). Ao adicionar a próxima feature ou correção, exportar as funções puras relevantes e escrever o primeiro teste real ali.
+- `npm test` já roda limpo com zero arquivos de teste (`passWithNoTests: true`) — não é erro, é só o estado inicial.
+
 ## Comandos
 
 ```bash
 npm run dev      # dev server
 npm run build    # build de produção
+npm test         # roda a suíte de testes (vitest run)
 ```
-
-> **Nota:** este projeto ainda não tem framework de testes configurado (sem Vitest/Jest). Antes de aplicar a regra 1 numa mudança específica, configurar um test runner e escrever os primeiros testes — com cuidado redobrado aqui por ser produção real, com cron e alertas Discord já dependendo do comportamento atual.
