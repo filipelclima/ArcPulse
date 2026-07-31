@@ -118,6 +118,17 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
 > HashZero cola aqui resumos de anúncios do Discord da Arc entre sessões, pra manter qualquer chat
 > novo atualizado sem precisar reexplicar tudo.
 
+- **31/07/2026 — Circle Agent Stack: auto-update.** Circle lançou auto-update para o Circle Agent
+  Stack (o CLI/tooling usado para construir agentes que integram com produtos Circle/Arc, ex.
+  ERC-8004/x402 mencionados na entrada da Vyper acima):
+  - `circle update` — atualiza o CLI (requer v0.0.6+)
+  - `circle skill update --tool claude-code` — atualiza Circle Skills com os últimos patterns
+  Docs: developers.circle.com/agent-stack.
+  **Relevância pro ArcPulse:** é update de tooling de dev, não uma feature/produto na Arc em si —
+  ainda não usamos o Circle Agent Stack diretamente no projeto. Vale re-visitar se a ideia futura de
+  aba "Agent Activity" (ver entrada da Vyper acima) sair do papel, já que esse CLI provavelmente é o
+  caminho recomendado pela Circle para automatizar esse tipo de integração. Só anotado por enquanto.
+
 - **26/06/2026 — Vyper on Arc (agentic payments).** Spotlight da Arc sobre o trabalho da Vyper
   (linguagem Pythonic para EVM, framework Titanoboa) na Arc Testnet combinando três camadas: identidade
   (registro/validação/reputação de agentes via **ERC-8004**), liquidação (fluxos **x402** + Circle Gateway
