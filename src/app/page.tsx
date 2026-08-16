@@ -38,7 +38,7 @@ function timeAgo(ts: number) {
   return `${Math.floor(d / 3600)}h ago`
 }
 
-function MetricCard({ label, value, unit, color = ACCENT.PRIMARY, loading = false }: {
+function MetricCard({ label, value, unit, color = TEXT.PRIMARY, loading = false }: {
   label: string; value: string | number; unit: string; color?: string; loading?: boolean
 }) {
   return (
@@ -184,9 +184,9 @@ function DashboardTab() {
     })
   }, [])
 
-  const blockTimeData = data.blocks.slice(1).map((b, i) => ({
-    block: `#${b.number.toLocaleString()}`,
-    time: data.blocks[i + 1].timestamp - data.blocks[i].timestamp,
+  const blockTimeData = data.blockTimeSeries.map(p => ({
+    block: `#${p.block.toLocaleString()}`,
+    time: p.time,
   }))
 
   const txData = data.blocks.map(b => ({
@@ -196,6 +196,17 @@ function DashboardTab() {
 
   const statusColor = data.status === 'live' ? ACCENT.PRIMARY : data.status === 'error' ? SEMANTIC.DANGER : SEMANTIC.PENDING
   const statusLabel = data.status === 'live' ? 'Live' : data.status === 'error' ? 'Error' : 'Connecting...'
+
+  // Same tiers calcScore() uses to grade these two inputs for the Health Score —
+  // a card only turns amber/red here when it's actually dragging that score down.
+  const blockTimeColor = data.avgBlockTime <= 0 ? TEXT.PRIMARY
+    : data.avgBlockTime <= 1 ? ACCENT.PRIMARY
+    : data.avgBlockTime <= 2 ? SEMANTIC.WARNING
+    : SEMANTIC.DANGER
+  const latencyColor = data.rpcLatency <= 0 ? TEXT.PRIMARY
+    : data.rpcLatency <= 400 ? ACCENT.PRIMARY
+    : data.rpcLatency <= 700 ? SEMANTIC.WARNING
+    : SEMANTIC.DANGER
 
   return (
     <>
@@ -211,16 +222,17 @@ function DashboardTab() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: '1.5rem' }}>
         <MetricCard label="Latest block" value={data.latestBlock > 0 ? data.latestBlock.toLocaleString() : '—'} unit="block number" loading={data.status === 'loading'} />
-        <MetricCard label="Avg block time" value={data.avgBlockTime > 0 ? `${data.avgBlockTime}s` : '—'} unit="last 10 blocks" color={ACCENT.BLUE} loading={data.status === 'loading'} />
-        <MetricCard label="Base fee" value={data.gasPrice !== '0' ? `${data.gasPrice}` : '—'} unit="gwei · USDC gas" color={SEMANTIC.WARNING} loading={data.status === 'loading'} />
-        <MetricCard label="RPC latency" value={data.rpcLatency > 0 ? `${data.rpcLatency}ms` : '—'} unit="response time" color={ACCENT.PURPLE} loading={data.status === 'loading'} />
-        <MetricCard label="Tx (last block)" value={data.blocks.length > 0 ? data.blocks[data.blocks.length - 1].txCount : '—'} unit="transactions" color={ACCENT.PRIMARY} loading={data.status === 'loading'} />
-        <MetricCard label="Chain ID" value={data.chainId > 0 ? data.chainId : '—'} unit="Arc Testnet" color={TEXT.TERTIARY} loading={data.status === 'loading'} />
+        <MetricCard label="Avg block time" value={data.avgBlockTime > 0 ? `${data.avgBlockTime}s` : '—'} unit="last 100 blocks" color={blockTimeColor} loading={data.status === 'loading'} />
+        <MetricCard label="Base fee" value={data.gasPrice !== '0' ? `${data.gasPrice}` : '—'} unit="gwei · USDC gas" loading={data.status === 'loading'} />
+        <MetricCard label="RPC latency" value={data.rpcLatency > 0 ? `${data.rpcLatency}ms` : '—'} unit="response time" color={latencyColor} loading={data.status === 'loading'} />
+        <MetricCard label="Tx (last block)" value={data.blocks.length > 0 ? data.blocks[data.blocks.length - 1].txCount : '—'} unit="transactions" loading={data.status === 'loading'} />
+        <MetricCard label="Chain ID" value={data.chainId > 0 ? data.chainId : '—'} unit="Arc Testnet" loading={data.status === 'loading'} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1.5rem' }}>
         <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem' }}>
-          <div style={{ fontSize: 12, color: TEXT.TERTIARY, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Block time (s)</div>
+          <div style={{ fontSize: 12, color: TEXT.TERTIARY, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Block time (s)</div>
+          <div style={{ fontSize: 11, color: TEXT.FAINT, marginBottom: 10 }}>10 consecutive 100-block spans, last 1000 blocks — not a single block-to-block delta</div>
           <ResponsiveContainer width="100%" height={160}>
             <LineChart data={blockTimeData}>
               <CartesianGrid stroke={SURFACES.BORDER} strokeDasharray="3 3" />
@@ -2473,27 +2485,36 @@ function ChainlinkMonitorTab() {
 }
 
 // ─── NETWORK SCORE ────────────────────────────────────────────────
-function calcScore(blockTime: number, latency: number, gasStability: number) {
+// Used to weight 40% block time / 35% latency / 25% gas-price stability, but the
+// gas slice's only input (gasStability) was hardcoded to 1 at its one call site —
+// it never measured anything, just always scored 100. Computing a *real* gas
+// variance here would mean tracking a rolling history of eth_gasPrice reads
+// client-side, which resets on every page load and is too thin (a couple of
+// samples over a couple of minutes) to be more honest than what it replaces —
+// it would just be a different kind of unreliable number wearing a "measured"
+// label. Simpler and more honest to drop the slice and redistribute its weight
+// over the two signals this hook can actually measure reliably on every poll,
+// preserving their original 40:35 relative weighting.
+function calcScore(blockTime: number, latency: number) {
   if (blockTime === 0 && latency === 0) return null
   const blockScore = blockTime <= 0.5 ? 100 : blockTime <= 1 ? 85 : blockTime <= 2 ? 60 : 30
   const latencyScore = latency <= 200 ? 100 : latency <= 400 ? 80 : latency <= 700 ? 55 : 25
-  const gasScore = gasStability <= 1 ? 100 : gasStability <= 5 ? 80 : 50
-  return Math.round(blockScore * 0.4 + latencyScore * 0.35 + gasScore * 0.25)
+  return Math.round((blockScore * 40 + latencyScore * 35) / 75)
 }
 
 function scoreLabel(score: number | null) {
-  if (score === null) return { label: '...', color: TEXT.TERTIARY, bg: SURFACES.BORDER }
-  if (score >= 90) return { label: 'Excellent', color: ACCENT.PRIMARY, bg: SEMANTIC.SUCCESS_BG }
-  if (score >= 70) return { label: 'Good', color: SEMANTIC.WARNING, bg: SEMANTIC.WARNING_BG }
-  if (score >= 50) return { label: 'Degraded', color: SEMANTIC.DEGRADED, bg: SEMANTIC.DEGRADED_BG }
-  return { label: 'ANOMALY', color: SEMANTIC.DANGER, bg: SEMANTIC.DANGER_BG }
+  if (score === null) return { label: '...', color: TEXT.TERTIARY }
+  if (score >= 90) return { label: 'Excellent', color: ACCENT.PRIMARY }
+  if (score >= 70) return { label: 'Good', color: SEMANTIC.WARNING }
+  if (score >= 50) return { label: 'Degraded', color: SEMANTIC.DEGRADED }
+  return { label: 'ANOMALY', color: SEMANTIC.DANGER }
 }
 
 // Single source of truth for the Health Score explanation — shown in both the
 // header tooltip and the Dashboard FAQ. Describes calcScore() as it actually
 // behaves: gasStability is hardcoded to 1 at its only call site, so the 25% gas
 // slice is currently a constant, not a live measurement.
-const HEALTH_SCORE_EXPLANATION = "This score weights two live signals: average block time (40% of the score, best tier at ≤0.5s) and RPC latency (35%, best tier at ≤200ms), each bucketed into tiers rather than scored continuously. The remaining 25% is set aside for gas-price stability, but that input is currently hardcoded to a fixed value instead of measuring real gas variance — so today's score is effectively driven by block time and latency alone."
+const HEALTH_SCORE_EXPLANATION = "This score weights two live signals, each bucketed into tiers rather than scored continuously: average block time (~53%) and RPC latency (~47%), best tiers at ≤0.5s and ≤200ms. A third factor for gas-price stability was removed — its only input was hardcoded and never measured anything — and its weight was folded into these two, preserving their original relative balance. Block time itself is averaged over the most recent 100-block span, not a single block-to-block reading, since Arc's timestamps only resolve to whole seconds and averaging over 100 blocks is what actually recovers real sub-second precision."
 
 // ─── HERO / FAQ / FOOTER ────────────────────────────────────────
 function HeroBand() {
@@ -2604,8 +2625,8 @@ export default function Home() {
       .catch(() => {})
   }, [])
 
-  const score = calcScore(data.avgBlockTime, data.rpcLatency, 1)
-  const { label, color, bg } = scoreLabel(score)
+  const score = calcScore(data.avgBlockTime, data.rpcLatency)
+  const { label, color } = scoreLabel(score)
   const isAnomaly = score !== null && score < 50
 
   const tabGroups = [
@@ -2640,17 +2661,6 @@ export default function Home() {
   return (
     <main style={{ minHeight: '100vh', background: SURFACES.BG, padding: '1.5rem', maxWidth: 1100, margin: '0 auto' }}>
 
-      <HeroBand />
-
-      {/* Anomaly banner */}
-      {isAnomaly && (
-        <div style={{ background: SEMANTIC.DANGER_BG, border: `1px solid ${SEMANTIC.DANGER}`, borderRadius: 10, padding: '10px 16px', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 16 }}>⚠️</span>
-          <span style={{ fontSize: 13, color: SEMANTIC.DANGER, fontWeight: 500 }}>Network Anomaly Detected</span>
-          <span style={{ fontSize: 12, color: TEXT.SECONDARY }}>— Block time or latency is above normal thresholds. Monitor closely.</span>
-        </div>
-      )}
-
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -2674,8 +2684,8 @@ export default function Home() {
             <GitHubIcon />
           </a>
           <ConnectButton />
-          <div style={{ background: bg, border: `1px solid ${color}44`, borderRadius: 12, padding: '10px 18px', textAlign: 'center', minWidth: 110 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+          <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem', textAlign: 'center', minWidth: 110 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
               Health Score
               <InfoTooltip text={HEALTH_SCORE_EXPLANATION} />
             </div>
@@ -2686,6 +2696,17 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Anomaly banner */}
+      {isAnomaly && (
+        <div style={{ background: SEMANTIC.DANGER_BG, border: `1px solid ${SEMANTIC.DANGER}`, borderRadius: 10, padding: '10px 16px', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <span style={{ fontSize: 13, color: SEMANTIC.DANGER, fontWeight: 500 }}>Network Anomaly Detected</span>
+          <span style={{ fontSize: 12, color: TEXT.SECONDARY }}>— Block time or latency is above normal thresholds. Monitor closely.</span>
+        </div>
+      )}
+
+      <HeroBand />
 
       {/* Tabs */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: '1.5rem', background: SURFACES.BG_SURFACE, borderRadius: 10, padding: 4, border: `1px solid ${SURFACES.BORDER}`, width: 'fit-content' }}>

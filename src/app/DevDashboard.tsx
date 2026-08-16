@@ -232,9 +232,9 @@ export function DevDashboardTab() {
     return (
       <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🦊</div>
-        <div style={{ fontSize: 18, fontWeight: 600, color: '#f1f5f9', marginBottom: 8 }}>No wallet detected</div>
-        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 24 }}>
-          Install <a href="https://metamask.io" target="_blank" rel="noopener noreferrer" style={{ color: '#1D9E75' }}>MetaMask</a> or <a href="https://rabby.io" target="_blank" rel="noopener noreferrer" style={{ color: '#1D9E75' }}>Rabby Wallet</a> to use this feature.
+        <div style={{ fontSize: 18, fontWeight: 600, color: TEXT.PRIMARY, marginBottom: 8 }}>No wallet detected</div>
+        <div style={{ fontSize: 13, color: TEXT.TERTIARY, marginBottom: 24 }}>
+          Install <a href="https://metamask.io" target="_blank" rel="noopener noreferrer" style={{ color: ACCENT.PRIMARY }}>MetaMask</a> or <a href="https://rabby.io" target="_blank" rel="noopener noreferrer" style={{ color: ACCENT.PRIMARY }}>Rabby Wallet</a> to use this feature.
         </div>
       </div>
     )
@@ -244,8 +244,8 @@ export function DevDashboardTab() {
     return (
       <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🔗</div>
-        <div style={{ fontSize: 18, fontWeight: 600, color: '#f1f5f9', marginBottom: 8 }}>Connect your wallet</div>
-        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 24, maxWidth: 400, margin: '0 auto 24px' }}>
+        <div style={{ fontSize: 18, fontWeight: 600, color: TEXT.PRIMARY, marginBottom: 8 }}>Connect your wallet</div>
+        <div style={{ fontSize: 13, color: TEXT.TERTIARY, marginBottom: 24, maxWidth: 400, margin: '0 auto 24px' }}>
           Connect your wallet to see your personal developer dashboard — transactions, contracts deployed, gas spent and more on Arc testnet.
         </div>
         <ConnectButton />
@@ -257,54 +257,54 @@ export function DevDashboardTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>Developer Dashboard</div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, fontFamily: 'monospace' }}>{address}</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: TEXT.PRIMARY }}>Developer Dashboard</div>
+          <div style={{ fontSize: 12, color: TEXT.TERTIARY, marginTop: 2, fontFamily: 'monospace' }}>{address}</div>
         </div>
         <button onClick={() => address && loadDevData(address)}
-          style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #1e1e2e', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}>
+          style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: `1px solid ${SURFACES.BORDER}`, background: 'transparent', color: TEXT.SECONDARY, cursor: 'pointer' }}>
           ↻ Refresh
         </button>
       </div>
 
       {loading ? (
-        <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '3rem' }}>
+        <div style={{ fontSize: 13, color: TEXT.MUTED, textAlign: 'center', padding: '3rem' }}>
           Scanning Arc testnet for your activity...
         </div>
       ) : stats ? (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: '1.5rem' }}>
-            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
-              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>USDC Balance</div>
-              <div style={{ fontSize: 24, fontWeight: 600, color: '#1D9E75' }}>{stats.balance}</div>
-              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>USDC</div>
+            <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>USDC Balance</div>
+              <div style={{ fontSize: 24, fontWeight: 600, color: ACCENT.PRIMARY }}>{stats.balance}</div>
+              <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>USDC</div>
             </div>
-            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
-              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Transactions</div>
-              <div style={{ fontSize: 24, fontWeight: 600, color: '#378ADD' }}>{stats.txCount}</div>
-              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>last 500 blocks</div>
+            <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Transactions</div>
+              <div style={{ fontSize: 24, fontWeight: 600, color: ACCENT.BLUE }}>{stats.txCount}</div>
+              <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>last 500 blocks</div>
             </div>
-            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
-              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Contracts Deployed</div>
-              <div style={{ fontSize: 24, fontWeight: 600, color: '#A78BFA' }}>{stats.contractsDeployed}</div>
-              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>on Arc testnet</div>
+            <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Contracts Deployed</div>
+              <div style={{ fontSize: 24, fontWeight: 600, color: ACCENT.PURPLE }}>{stats.contractsDeployed}</div>
+              <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>on Arc testnet</div>
             </div>
-            <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1rem 1.25rem' }}>
-              <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Gas Spent</div>
-              <div style={{ fontSize: 24, fontWeight: 600, color: '#EF9F27' }}>{stats.totalGasUSDC.toFixed(6)}</div>
-              <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>USDC total</div>
+            <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Gas Spent</div>
+              <div style={{ fontSize: 24, fontWeight: 600, color: SEMANTIC.WARNING }}>{stats.totalGasUSDC.toFixed(6)}</div>
+              <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>USDC total</div>
             </div>
           </div>
 
-          <div style={{ background: '#13131a', border: '1px solid #1e1e2e', borderRadius: 12, padding: '1.25rem' }}>
-            <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>Recent transactions</div>
+          <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1.25rem' }}>
+            <div style={{ fontSize: 12, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem' }}>Recent transactions</div>
             {stats.txs.length === 0 ? (
-              <div style={{ fontSize: 13, color: '#475569', textAlign: 'center', padding: '2rem' }}>
+              <div style={{ fontSize: 13, color: TEXT.MUTED, textAlign: 'center', padding: '2rem' }}>
                 No transactions found in the last 500 blocks.
               </div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
-                  <tr style={{ color: '#475569', fontSize: 11, textTransform: 'uppercase' }}>
+                  <tr style={{ color: TEXT.MUTED, fontSize: 11, textTransform: 'uppercase' }}>
                     <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Hash</th>
                     <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Type</th>
                     <th style={{ textAlign: 'left', paddingBottom: 8, fontWeight: 500 }}>Age</th>
@@ -313,16 +313,16 @@ export function DevDashboardTab() {
                 </thead>
                 <tbody>
                   {stats.txs.map(tx => (
-                    <tr key={tx.hash} style={{ borderTop: '1px solid #1e1e2e' }}>
-                      <td style={{ padding: '8px 0', color: '#378ADD', fontFamily: 'monospace' }}>
+                    <tr key={tx.hash} style={{ borderTop: `1px solid ${SURFACES.BORDER}` }}>
+                      <td style={{ padding: '8px 0', color: ACCENT.BLUE, fontFamily: 'monospace' }}>
                         <a href={`https://testnet.arcscan.app/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer"
-                          style={{ color: '#378ADD', textDecoration: 'none' }}>
+                          style={{ color: ACCENT.BLUE, textDecoration: 'none' }}>
                           {tx.hash.slice(0, 8)}...{tx.hash.slice(-6)}
                         </a>
                       </td>
-                      <td style={{ padding: '8px 0', color: '#94a3b8' }}>{tx.type}</td>
-                      <td style={{ padding: '8px 0', color: '#64748b' }}>{timeAgo(tx.timestamp)}</td>
-                      <td style={{ padding: '8px 0', textAlign: 'right', color: '#EF9F27', fontFamily: 'monospace' }}>
+                      <td style={{ padding: '8px 0', color: TEXT.SECONDARY }}>{tx.type}</td>
+                      <td style={{ padding: '8px 0', color: TEXT.TERTIARY }}>{timeAgo(tx.timestamp)}</td>
+                      <td style={{ padding: '8px 0', textAlign: 'right', color: SEMANTIC.WARNING, fontFamily: 'monospace' }}>
                         {tx.gasCost.toFixed(8)}
                       </td>
                     </tr>
@@ -333,7 +333,7 @@ export function DevDashboardTab() {
           </div>
         </>
       ) : (
-        <div style={{ fontSize: 13, color: '#ef4444', textAlign: 'center', padding: '2rem' }}>
+        <div style={{ fontSize: 13, color: SEMANTIC.DANGER, textAlign: 'center', padding: '2rem' }}>
           Failed to load data. Please try refreshing.
         </div>
       )}
