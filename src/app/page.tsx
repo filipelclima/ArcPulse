@@ -8,6 +8,12 @@ import {
 } from 'recharts'
 import { decodeFunctionData, parseAbi } from 'viem'
 import { SURFACES, TEXT, ACCENT, SEMANTIC, NETWORK_BRAND_COLORS } from '@/lib/theme'
+import {
+  DashboardIcon, ReportsIcon, CompareIcon, AnomaliesIcon, StatusIcon,
+  DevIcon, NetworksIcon, MemosIcon, BatchesIcon, ChainlinkIcon, GitHubIcon,
+} from './icons'
+import { Skeleton } from './Skeleton'
+import { Tooltip as InfoTooltip } from './Tooltip'
 
 const RPC = 'https://rpc.testnet.arc.network'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -32,13 +38,17 @@ function timeAgo(ts: number) {
   return `${Math.floor(d / 3600)}h ago`
 }
 
-function MetricCard({ label, value, unit, color = ACCENT.PRIMARY }: {
-  label: string; value: string | number; unit: string; color?: string
+function MetricCard({ label, value, unit, color = ACCENT.PRIMARY, loading = false }: {
+  label: string; value: string | number; unit: string; color?: string; loading?: boolean
 }) {
   return (
     <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem' }}>
-      <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 600, color }}>{value}</div>
+      <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{label}</div>
+      {loading ? (
+        <div style={{ marginTop: 4, marginBottom: 4 }}><Skeleton width={72} height={26} /></div>
+      ) : (
+        <div style={{ fontSize: 26, fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      )}
       <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>{unit}</div>
     </div>
   )
@@ -200,12 +210,12 @@ function DashboardTab() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: '1.5rem' }}>
-        <MetricCard label="Latest block" value={data.latestBlock > 0 ? data.latestBlock.toLocaleString() : '—'} unit="block number" />
-        <MetricCard label="Avg block time" value={data.avgBlockTime > 0 ? `${data.avgBlockTime}s` : '—'} unit="last 10 blocks" color={ACCENT.BLUE} />
-        <MetricCard label="Base fee" value={data.gasPrice !== '0' ? `${data.gasPrice}` : '—'} unit="gwei · USDC gas" color={SEMANTIC.WARNING} />
-        <MetricCard label="RPC latency" value={data.rpcLatency > 0 ? `${data.rpcLatency}ms` : '—'} unit="response time" color={ACCENT.PURPLE} />
-        <MetricCard label="Tx (last block)" value={data.blocks.length > 0 ? data.blocks[data.blocks.length - 1].txCount : '—'} unit="transactions" color={ACCENT.PRIMARY} />
-        <MetricCard label="Chain ID" value={data.chainId > 0 ? data.chainId : '—'} unit="Arc Testnet" color={TEXT.TERTIARY} />
+        <MetricCard label="Latest block" value={data.latestBlock > 0 ? data.latestBlock.toLocaleString() : '—'} unit="block number" loading={data.status === 'loading'} />
+        <MetricCard label="Avg block time" value={data.avgBlockTime > 0 ? `${data.avgBlockTime}s` : '—'} unit="last 10 blocks" color={ACCENT.BLUE} loading={data.status === 'loading'} />
+        <MetricCard label="Base fee" value={data.gasPrice !== '0' ? `${data.gasPrice}` : '—'} unit="gwei · USDC gas" color={SEMANTIC.WARNING} loading={data.status === 'loading'} />
+        <MetricCard label="RPC latency" value={data.rpcLatency > 0 ? `${data.rpcLatency}ms` : '—'} unit="response time" color={ACCENT.PURPLE} loading={data.status === 'loading'} />
+        <MetricCard label="Tx (last block)" value={data.blocks.length > 0 ? data.blocks[data.blocks.length - 1].txCount : '—'} unit="transactions" color={ACCENT.PRIMARY} loading={data.status === 'loading'} />
+        <MetricCard label="Chain ID" value={data.chainId > 0 ? data.chainId : '—'} unit="Arc Testnet" color={TEXT.TERTIARY} loading={data.status === 'loading'} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1.5rem' }}>
@@ -241,7 +251,7 @@ function DashboardTab() {
           <div style={{ fontSize: 12, color: TEXT.TERTIARY, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Gas price history</div>
           <div style={{ fontSize: 11, color: TEXT.FAINT, marginBottom: 10 }}>Average gwei per day — from Supabase snapshots</div>
           {gasHistory.length < 2 ? (
-            <div style={{ fontSize: 12, color: TEXT.MUTED, textAlign: 'center', padding: '2rem 0' }}>Collecting data... visit /api/collect to generate snapshots</div>
+            <div style={{ fontSize: 12, color: TEXT.MUTED, textAlign: 'center', padding: '2rem 0' }}>Building history — charts appear once enough snapshots are recorded.</div>
           ) : (
             <ResponsiveContainer width="100%" height={150}>
               <LineChart data={gasHistory}>
@@ -301,6 +311,8 @@ function DashboardTab() {
           </table>
         )}
       </div>
+
+      <FAQ />
     </>
   )
 }
@@ -363,22 +375,22 @@ function ReportsTab() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: '1.25rem' }}>
         <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${uptimeColor}44`, borderRadius: 12, padding: '1rem 1.25rem' }}>
           <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Network Uptime</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: uptimeColor }}>{uptimePct}%</div>
+          {loading ? <Skeleton width={70} height={28} /> : <div style={{ fontSize: 28, fontWeight: 700, color: uptimeColor }}>{uptimePct}%</div>}
           <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>based on {totalSnaps} snapshots</div>
         </div>
         <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem' }}>
           <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Healthy Snapshots</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: ACCENT.PRIMARY }}>{healthySnaps}</div>
+          {loading ? <Skeleton width={50} height={28} /> : <div style={{ fontSize: 28, fontWeight: 700, color: ACCENT.PRIMARY }}>{healthySnaps}</div>}
           <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>of {totalSnaps} total</div>
         </div>
         <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem' }}>
           <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Avg Health Score</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: ACCENT.PURPLE }}>{avgScore || '—'}</div>
+          {loading ? <Skeleton width={40} height={28} /> : <div style={{ fontSize: 28, fontWeight: 700, color: ACCENT.PURPLE }}>{avgScore || '—'}</div>}
           <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>across all snapshots</div>
         </div>
         <div style={{ background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 12, padding: '1rem 1.25rem' }}>
           <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Days Monitored</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: ACCENT.BLUE }}>{days.length}</div>
+          {loading ? <Skeleton width={30} height={28} /> : <div style={{ fontSize: 28, fontWeight: 700, color: ACCENT.BLUE }}>{days.length}</div>}
           <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>since first snapshot</div>
         </div>
       </div>
@@ -2477,10 +2489,98 @@ function scoreLabel(score: number | null) {
   return { label: 'ANOMALY', color: SEMANTIC.DANGER, bg: SEMANTIC.DANGER_BG }
 }
 
+// Single source of truth for the Health Score explanation — shown in both the
+// header tooltip and the Dashboard FAQ. Describes calcScore() as it actually
+// behaves: gasStability is hardcoded to 1 at its only call site, so the 25% gas
+// slice is currently a constant, not a live measurement.
+const HEALTH_SCORE_EXPLANATION = "This score weights two live signals: average block time (40% of the score, best tier at ≤0.5s) and RPC latency (35%, best tier at ≤200ms), each bucketed into tiers rather than scored continuously. The remaining 25% is set aside for gas-price stability, but that input is currently hardcoded to a fixed value instead of measuring real gas variance — so today's score is effectively driven by block time and latency alone."
+
+// ─── HERO / FAQ / FOOTER ────────────────────────────────────────
+function HeroBand() {
+  const badges = ['Independent project', 'Reads the official RPC', 'Open source', 'Updated every 5 min']
+  return (
+    <div style={{ textAlign: 'center', padding: '2.5rem 1rem 2rem' }}>
+      <h1 style={{ fontSize: 32, fontWeight: 700, color: TEXT.PRIMARY, margin: 0 }}>Is Arc healthy right now?</h1>
+      <p style={{ fontSize: 14, color: TEXT.SECONDARY, maxWidth: 560, margin: '12px auto 0', lineHeight: 1.6 }}>
+        ArcPulse reads Arc's testnet directly from the official RPC and records a snapshot every five minutes. Block times, gas, throughput, and anomalies - measured, not estimated.
+      </p>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+        {badges.map(b => (
+          <span key={b} style={{ fontSize: 11, color: TEXT.TERTIARY, background: SURFACES.BG_SURFACE, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 999, padding: '4px 12px' }}>
+            {b}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const FAQ_ITEMS = [
+  {
+    q: 'Where does this data come from?',
+    a: "Directly from rpc.testnet.arc.network, Arc's official endpoint. No third-party indexer sits between the chain and this dashboard.",
+  },
+  { q: 'How is the Health Score calculated?', a: HEALTH_SCORE_EXPLANATION },
+  {
+    q: 'Is this an official Circle or Arc product?',
+    a: 'No. ArcPulse is an independent project built by a community member. It is not affiliated with, endorsed by, or operated by Circle.',
+  },
+  {
+    q: 'How often does it update?',
+    a: 'Live metrics refresh on every page load. Historical charts are built from snapshots recorded every five minutes.',
+  },
+  {
+    q: 'Can I verify any of this?',
+    a: 'Yes - the full source is on GitHub, and every number here comes from public RPC calls you can reproduce yourself.',
+  },
+]
+
+function FAQ() {
+  return (
+    <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: `1px solid ${SURFACES.BORDER}` }}>
+      <div style={{ fontSize: 16, fontWeight: 600, color: TEXT.PRIMARY, marginBottom: '1rem' }}>Frequently asked questions</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {FAQ_ITEMS.map(item => (
+          <div key={item.q}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: TEXT.PRIMARY, marginBottom: 4 }}>{item.q}</div>
+            <div style={{ fontSize: 13, color: TEXT.SECONDARY, lineHeight: 1.6 }}>{item.a}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Footer() {
+  return (
+    <footer style={{ marginTop: '3rem', paddingTop: '1.5rem', borderTop: `1px solid ${SURFACES.BORDER}`, textAlign: 'center' }}>
+      <div style={{ fontSize: 13, color: TEXT.SECONDARY, marginBottom: 10 }}>Built on Arc - Independent - Open source</div>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 20, marginBottom: 10, fontSize: 13, flexWrap: 'wrap' }}>
+        <a href="https://github.com/filipelclima/ArcPulse" target="_blank" rel="noopener noreferrer"
+          style={{ color: TEXT.SECONDARY, display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
+          <GitHubIcon /> GitHub
+        </a>
+        <a href="https://arcinherit.com" target="_blank" rel="noopener noreferrer" style={{ color: TEXT.SECONDARY, textDecoration: 'none' }}>
+          Heirloom - onchain inheritance vault on Arc
+        </a>
+      </div>
+      <div style={{ fontSize: 11, color: TEXT.FAINT }}>Not affiliated with Circle or Arc.</div>
+    </footer>
+  )
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function Home() {
   const [tab, setTab] = useState<'dashboard' | 'reports' | 'compare' | 'anomalies' | 'status' | 'dev' | 'networks' | 'memos' | 'batches' | 'chainlink'>('dashboard')
   const { data } = useArcData()
+
+  // Re-render every second so the "Last updated Xs ago" header text keeps counting
+  // up between fetches instead of only jumping when useArcData's 30s poll lands.
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => tick(n => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   // Self-heal: Vercel's Hobby-plan cron does not retry a failed invocation, so a
   // single hiccup (cold start, Supabase momentarily unreachable, etc.) silently
@@ -2508,21 +2608,39 @@ export default function Home() {
   const { label, color, bg } = scoreLabel(score)
   const isAnomaly = score !== null && score < 50
 
-  const tabs = [
-    { id: 'dashboard', label: '📊 Dashboard' },
-    { id: 'reports', label: '📋 Reports' },
-    { id: 'compare', label: '⚖️ Compare' },
-    { id: 'anomalies', label: '⚠️ Anomalies' },
-    { id: 'status', label: '⚡ Network Status' },
-    { id: 'dev', label: '👨‍💻 Dev Dashboard' },
-    { id: 'networks', label: '🌐 Networks' },
-    { id: 'memos', label: '📋 Memo Activity' },
-    { id: 'batches', label: '📦 Batch Transactions' },
-    { id: 'chainlink', label: '🔗 Chainlink' },
+  const tabGroups = [
+    {
+      group: 'live', tabs: [
+        { id: 'dashboard', label: 'Dashboard', Icon: DashboardIcon },
+        { id: 'status', label: 'Network Status', Icon: StatusIcon },
+      ],
+    },
+    {
+      group: 'analysis', tabs: [
+        { id: 'reports', label: 'Daily Reports', Icon: ReportsIcon },
+        { id: 'compare', label: 'Compare Periods', Icon: CompareIcon },
+        { id: 'anomalies', label: 'Anomaly Log', Icon: AnomaliesIcon },
+        { id: 'networks', label: 'Networks', Icon: NetworksIcon },
+      ],
+    },
+    {
+      group: 'arc', tabs: [
+        { id: 'memos', label: 'Memo Activity', Icon: MemosIcon },
+        { id: 'batches', label: 'Batch Transactions', Icon: BatchesIcon },
+        { id: 'chainlink', label: 'Chainlink', Icon: ChainlinkIcon },
+      ],
+    },
+    {
+      group: 'dev', tabs: [
+        { id: 'dev', label: 'Dev Dashboard', Icon: DevIcon },
+      ],
+    },
   ] as const
 
   return (
     <main style={{ minHeight: '100vh', background: SURFACES.BG, padding: '1.5rem', maxWidth: 1100, margin: '0 auto' }}>
+
+      <HeroBand />
 
       {/* Anomaly banner */}
       {isAnomaly && (
@@ -2544,27 +2662,49 @@ export default function Home() {
         </div>
 
         {/* Network Score */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {data.lastUpdated && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: TEXT.TERTIARY }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: ACCENT.PRIMARY, boxShadow: `0 0 6px ${ACCENT.PRIMARY}`, animation: 'pulse 2s infinite' }} />
+              Last updated {timeAgo(Math.floor(data.lastUpdated.getTime() / 1000))}
+            </div>
+          )}
+          <a href="https://github.com/filipelclima/ArcPulse" target="_blank" rel="noopener noreferrer" aria-label="ArcPulse on GitHub"
+            style={{ color: TEXT.TERTIARY, display: 'flex', alignItems: 'center' }}>
+            <GitHubIcon />
+          </a>
           <ConnectButton />
           <div style={{ background: bg, border: `1px solid ${color}44`, borderRadius: 12, padding: '10px 18px', textAlign: 'center', minWidth: 110 }}>
-            <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Health Score</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{score ?? '—'}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+              Health Score
+              <InfoTooltip text={HEALTH_SCORE_EXPLANATION} />
+            </div>
+            {data.status === 'loading' ? <Skeleton width={30} height={28} /> : (
+              <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{score ?? '—'}</div>
+            )}
             <div style={{ fontSize: 11, color, marginTop: 3, fontWeight: 500 }}>{label}</div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: '1.5rem', background: SURFACES.BG_SURFACE, borderRadius: 10, padding: 4, border: `1px solid ${SURFACES.BORDER}`, width: 'fit-content' }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            style={{
-              padding: '8px 20px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              background: tab === t.id ? ACCENT.PRIMARY : 'transparent',
-              color: tab === t.id ? TEXT.ON_ACCENT : TEXT.TERTIARY,
-            }}>
-            {t.label}
-          </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: '1.5rem', background: SURFACES.BG_SURFACE, borderRadius: 10, padding: 4, border: `1px solid ${SURFACES.BORDER}`, width: 'fit-content' }}>
+        {tabGroups.map((g, gi) => (
+          <div key={g.group} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {gi > 0 && <div style={{ width: 1, alignSelf: 'stretch', background: SURFACES.BORDER, margin: '0 4px' }} />}
+            {g.tabs.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '8px 16px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                  background: tab === t.id ? ACCENT.PRIMARY : 'transparent',
+                  color: tab === t.id ? TEXT.ON_ACCENT : TEXT.TERTIARY,
+                }}>
+                <t.Icon />
+                {t.label}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
 
@@ -2584,7 +2724,12 @@ export default function Home() {
         <span>ArcPulse v0.3</span>
       </div>
 
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
+      <Footer />
+
+      <style>{`
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+      `}</style>
     </main>
   )
 }

@@ -17,6 +17,7 @@ export const TEXT = {
   MUTED: '#475569',
   FAINT: '#334155',
   ON_ACCENT: '#fff', // text on top of a solid accent-colored button/pill
+  DEFAULT: '#e2e8f0', // body element fallback (globals.css) — distinct from TEXT.PRIMARY, only shows where nothing overrides it inline
 }
 
 // Accent — brand green plus feature-specific accents (AI report, Chainlink monitor).

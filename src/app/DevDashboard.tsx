@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { SEMANTIC, ACCENT, SURFACES, TEXT } from '@/lib/theme'
 
 const RPC = 'https://rpc.testnet.arc.network'
 const ARC_CHAIN_ID = '0x4CE252' // 5042002 in hex
@@ -105,28 +106,30 @@ export function ConnectButton() {
 
   if (error) {
     return (
-      <div style={{ fontSize: 12, color: '#ef4444' }}>{error}</div>
+      <div style={{ fontSize: 12, color: SEMANTIC.DANGER }}>{error}</div>
     )
   }
 
   if (address) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ background: '#0d2b1f', border: '1px solid #1D9E75', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#1D9E75', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ background: SEMANTIC.SUCCESS_BG, border: `1px solid ${ACCENT.PRIMARY}`, borderRadius: 8, padding: '6px 12px', fontSize: 12, color: ACCENT.PRIMARY, display: 'flex', alignItems: 'center', gap: 6 }}>
           <WalletIcon type={walletType} />
           <span style={{ fontFamily: 'monospace' }}>{address.slice(0, 6)}...{address.slice(-4)}</span>
         </div>
         <button onClick={disconnect}
-          style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: '1px solid #1e1e2e', background: 'transparent', color: '#64748b', cursor: 'pointer' }}>
+          style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: `1px solid ${SURFACES.BORDER}`, background: 'transparent', color: TEXT.TERTIARY, cursor: 'pointer' }}>
           ✕
         </button>
       </div>
     )
   }
 
+  // Secondary/ghost treatment — this is a read-only dashboard, connecting a wallet is
+  // opt-in for the Dev Dashboard tab only, not the page's primary action.
   return (
     <button onClick={connect} disabled={connecting}
-      style={{ background: '#1D9E75', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: connecting ? 'not-allowed' : 'pointer', opacity: connecting ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+      style={{ background: 'transparent', color: TEXT.SECONDARY, border: `1px solid ${SURFACES.BORDER}`, borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 500, cursor: connecting ? 'not-allowed' : 'pointer', opacity: connecting ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6 }}>
       {connecting ? '⏳ Connecting...' : '🔗 Connect Wallet'}
     </button>
   )
