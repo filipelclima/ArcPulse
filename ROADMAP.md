@@ -99,6 +99,17 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   cron-job.org chama `/api/collect` às 9:00 UTC todo dia — tem histórico de execuções com status HTTP
   que o Vercel Hobby não oferece. Com duas chamadas automáticas/dia + self-heal, gaps de coleta de
   múltiplos dias devem ser eliminados.
+- **Extração de tokens de cor para `src/lib/theme.ts` — concluído (16/08).** Refactor puro (sem
+  mudança visual): os ~570 hex hardcoded espalhados em `page.tsx` (inline `style={{}}` — projeto não
+  usa Tailwind apesar de listado no `package.json`, ver `CLAUDE.md`) viraram tokens nomeados,
+  agrupados em `SURFACES`, `TEXT`, `ACCENT`, `SEMANTIC` e um array `CHART_COLORS` com as 4 cores de
+  série usadas nos gráficos Recharts, mais `NETWORK_BRAND_COLORS` para as cores de marca de outras
+  chains (aba Networks). Valores idênticos aos originais, só ganharam nome — inclusive os 4 níveis de
+  severidade reais do app (success/warning/degraded/danger, não só 3) e os casos onde a mesma cor
+  hex já era reaproveitada em papéis diferentes (ex. `#1D9E75` como accent de marca, cor de sucesso
+  *e* primeira cor da série do gráfico — viraram um único token `ACCENT.PRIMARY` referenciado nos
+  outros lugares em vez de duplicado). `globals.css` não foi tocado — ainda tem 2 hex próprios
+  (`#0a0a0f`, `#e2e8f0` no `body`) fora do `theme.ts`, pendente para uma próxima sessão.
 
 **Pendências abertas:**
 - Localizar e limpar o projeto Supabase órfão associado ao `arc-pulse` (free tier permite só 2

@@ -12,13 +12,14 @@ Dashboard de monitoramento da Arc blockchain testnet. Builder: HashZero. Objetiv
 - ethers `^6.16.0` + viem `^2.21.19`
 - @supabase/supabase-js `^2.107.0` (coleta de snapshots)
 - recharts `^2.12.7` (gráficos)
-- Tailwind CSS
+- **Estilização: inline `style={{ ... }}` objects, não Tailwind.** `tailwindcss` está no `package.json` e `globals.css` tem os directives (`@tailwind base/components/utilities`), mas nenhum componente usa `className` — é dependência instalada e não utilizada, não a convenção real do projeto. Não presumir Tailwind ao editar estilos; usar `style={{}}` como todo o resto do código já faz.
 
 ## Estrutura
 
 - `src/app/page.tsx` — dashboard principal (abas: Reports, Compare, Anomalies, Network Status, Networks, Memo Activity, Batch Transactions, Chainlink Monitor)
 - `src/app/DevDashboard.tsx` — aba Dev Dashboard (Connect Wallet via MetaMask/Rabby)
 - `src/app/useArcData.ts` — hook de coleta/leitura de dados da chain
+- `src/lib/theme.ts` — tokens de cor do dark theme (`SURFACES`, `TEXT`, `ACCENT`, `SEMANTIC`, `CHART_COLORS`, `NETWORK_BRAND_COLORS`), importados via `@/lib/theme`. Extraído dos hex hardcoded que existiam espalhados em `page.tsx`; `globals.css` ainda tem dois hex próprios (`#0a0a0f`, `#e2e8f0` no `body`) fora desse arquivo, não migrados.
 - API routes (`/api/collect`, `/api/public-stats`, `/api/faucet-status`) — ver `ROADMAP.md` para detalhes de cada uma
 
 ## Regras de trabalho
