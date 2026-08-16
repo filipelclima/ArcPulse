@@ -741,9 +741,10 @@ interface EndpointStatus {
 
 interface TxStats {
   total: number
-  success: number
-  failed: number
-  successRate: number
+  success: number | null
+  failed: number | null
+  successRate: number | null
+  sampleSize: number
   avgGasUsed: number
   blocksScanned: number
 }
@@ -879,28 +880,19 @@ function NetworkStatusTab() {
       )
 
       let total = 0
-      let success = 0
-      let failed = 0
       let totalGas = 0
-
       for (const block of blocks) {
         if (!block?.transactions) continue
         for (const tx of block.transactions) {
           total++
-          const gasUsed = hexToNum(tx.gas ?? '0x0')
-          totalGas += gasUsed
-          // Transactions with gas > 21000 are contract calls, assume success
-          // Failed txs typically use all gas
-          const isLikelyFailed = gasUsed === hexToNum(tx.gas ?? '0x0') && gasUsed > 21000
-          if (isLikelyFailed && Math.random() < 0.05) {
-            failed++
-          } else {
-            success++
-          }
+          totalGas += hexToNum(tx.gas ?? '0x0')
         }
       }
 
-      // Get actual receipts for a sample to get real success rate
+      // Success rate isn't measured per-transaction — it's sampled: real receipts
+      // for up to 10 transactions from the scanned blocks, extrapolated across the
+      // full count. If every receipt lookup in the sample fails, there's no rate
+      // to report — never substitute a made-up number for a missing measurement.
       const sampleTxs = blocks
         .filter(b => b?.transactions?.length > 0)
         .flatMap(b => b.transactions)
@@ -921,16 +913,17 @@ function NetworkStatusTab() {
         })
       )
 
-      const sampleTotal = realSuccess + realFailed
-      const successRate = sampleTotal > 0
-        ? parseFloat(((realSuccess / sampleTotal) * 100).toFixed(1))
-        : 98.5
+      const sampleSize = realSuccess + realFailed
+      const successRate = sampleSize > 0
+        ? parseFloat(((realSuccess / sampleSize) * 100).toFixed(1))
+        : null
 
       setTxStats({
         total,
-        success: Math.round(total * successRate / 100),
-        failed: Math.round(total * (100 - successRate) / 100),
+        success: successRate !== null ? Math.round(total * successRate / 100) : null,
+        failed: successRate !== null ? Math.round(total * (100 - successRate) / 100) : null,
         successRate,
+        sampleSize,
         avgGasUsed: total > 0 ? Math.round(totalGas / total) : 0,
         blocksScanned: scanCount,
       })
@@ -988,26 +981,42 @@ function NetworkStatusTab() {
         ) : txStats ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: '1rem' }}>
-              <div style={{ background: SURFACES.BG, borderRadius: 10, padding: '1rem', border: `1px solid ${successRateColor(txStats.successRate)}44` }}>
-                <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Success Rate</div>
-                <div style={{ fontSize: 28, fontWeight: 700, color: successRateColor(txStats.successRate) }}>{txStats.successRate}%</div>
-                <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>of sampled txs</div>
-              </div>
+              {txStats.successRate !== null ? (
+                <div style={{ background: SURFACES.BG, borderRadius: 10, padding: '1rem', border: `1px solid ${successRateColor(txStats.successRate)}44` }}>
+                  <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Success Rate</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: successRateColor(txStats.successRate) }}>{txStats.successRate}%</div>
+                  <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>of {txStats.sampleSize} sampled txs</div>
+                </div>
+              ) : (
+                <div style={{ background: SURFACES.BG, borderRadius: 10, padding: '1rem', border: `1px solid ${SURFACES.BORDER}` }}>
+                  <div style={{ fontSize: 11, color: TEXT.TERTIARY, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Success Rate</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: TEXT.PRIMARY }}>—</div>
+                  <div style={{ fontSize: 12, color: TEXT.MUTED, marginTop: 3 }}>no sample this cycle</div>
+                </div>
+              )}
               <MetricCard label="Total Txs Scanned" value={txStats.total.toLocaleString()} unit="transactions" color={ACCENT.BLUE} />
-              <MetricCard label="Successful" value={txStats.success.toLocaleString()} unit="transactions" color={ACCENT.PRIMARY} />
-              <MetricCard label="Failed" value={txStats.failed.toLocaleString()} unit="transactions" color={txStats.failed > 0 ? SEMANTIC.DANGER : TEXT.TERTIARY} />
+              <MetricCard label="Successful" value={txStats.success !== null ? txStats.success.toLocaleString() : '—'} unit="transactions" color={ACCENT.PRIMARY} />
+              <MetricCard label="Failed" value={txStats.failed !== null ? txStats.failed.toLocaleString() : '—'} unit="transactions" color={txStats.failed && txStats.failed > 0 ? SEMANTIC.DANGER : TEXT.TERTIARY} />
             </div>
 
             {/* Success rate bar */}
-            <div style={{ marginTop: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: TEXT.TERTIARY, marginBottom: 6 }}>
-                <span>Success</span>
-                <span>{txStats.successRate}%</span>
+            {txStats.successRate !== null ? (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: TEXT.TERTIARY, marginBottom: 6 }}>
+                  <span>Success</span>
+                  <span>{txStats.successRate}%</span>
+                </div>
+                <div style={{ background: SURFACES.BORDER, borderRadius: 6, height: 8, overflow: 'hidden' }}>
+                  <div style={{ background: successRateColor(txStats.successRate), height: '100%', width: `${txStats.successRate}%`, borderRadius: 6, transition: 'width 0.5s ease' }} />
+                </div>
               </div>
-              <div style={{ background: SURFACES.BORDER, borderRadius: 6, height: 8, overflow: 'hidden' }}>
-                <div style={{ background: successRateColor(txStats.successRate), height: '100%', width: `${txStats.successRate}%`, borderRadius: 6, transition: 'width 0.5s ease' }} />
+            ) : (
+              <div style={{ fontSize: 12, color: TEXT.MUTED, textAlign: 'center', padding: '1rem 0' }}>
+                {txStats.total === 0
+                  ? `No transactions found in the last ${txStats.blocksScanned} blocks.`
+                  : "Couldn't fetch a transaction receipt sample this cycle — try refreshing."}
               </div>
-            </div>
+            )}
           </>
         ) : (
           <div style={{ fontSize: 13, color: SEMANTIC.DANGER }}>Failed to load transaction data.</div>
@@ -1499,25 +1508,27 @@ async function fetchNetworkData(network: NetworkData): Promise<NetworkData> {
     const gasData = await gasRes.json()
     const gasGwei = parseInt(gasData.result, 16) / 1e9
 
-    // Get last 5 blocks for avg block time
-    const blockNums = Array.from({ length: 5 }, (_, i) => latest - 4 + i)
-    const blocks = await Promise.all(blockNums.map(async n => {
-      const r = await fetch(network.rpc, {
+    // Every row uses the same instrument — a 100-block window (block N and
+    // N-100, divided by 100) rather than a single block-to-block delta — so
+    // all five chains are comparable on the same ruler regardless of how fast
+    // each one actually produces blocks. Two block fetches per row, same as
+    // any other row; cheaper than the old 5-block raw path it replaced.
+    const span = 100
+    const [endRes, startRes] = await Promise.all([
+      fetch(network.rpc, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'eth_getBlockByNumber', params: ['0x' + n.toString(16), false] }),
-      })
-      const d = await r.json()
-      return d.result
-    }))
-
-    const times: number[] = []
-    for (let i = 1; i < blocks.length; i++) {
-      if (blocks[i] && blocks[i-1]) {
-        times.push(parseInt(blocks[i].timestamp, 16) - parseInt(blocks[i-1].timestamp, 16))
-      }
-    }
-    const avgBlockTime = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : null
+        body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'eth_getBlockByNumber', params: ['0x' + latest.toString(16), false] }),
+      }).then(r => r.json()),
+      fetch(network.rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'eth_getBlockByNumber', params: ['0x' + (latest - span).toString(16), false] }),
+      }).then(r => r.json()),
+    ])
+    const avgBlockTime = (endRes.result && startRes.result)
+      ? parseFloat(((parseInt(endRes.result.timestamp, 16) - parseInt(startRes.result.timestamp, 16)) / span).toFixed(2))
+      : null
 
     return { ...network, blockTime: avgBlockTime, gasGwei: parseFloat(gasGwei.toFixed(2)), latency }
   } catch {
@@ -2523,7 +2534,7 @@ function HeroBand() {
     <div style={{ textAlign: 'center', padding: '2.5rem 1rem 2rem' }}>
       <h1 style={{ fontSize: 32, fontWeight: 700, color: TEXT.PRIMARY, margin: 0 }}>Is Arc healthy right now?</h1>
       <p style={{ fontSize: 14, color: TEXT.SECONDARY, maxWidth: 560, margin: '12px auto 0', lineHeight: 1.6 }}>
-        ArcPulse reads Arc's testnet directly from the official RPC and records a snapshot every five minutes. Block times, gas, throughput, and anomalies - measured, not estimated.
+        ArcPulse reads Arc's testnet directly from the official RPC and records a snapshot every five minutes. Block times, gas, throughput, and anomalies - read straight from the chain, with every method documented.
       </p>
       <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
         {badges.map(b => (

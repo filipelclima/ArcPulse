@@ -245,7 +245,7 @@ export function DevDashboardTab() {
       <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🔗</div>
         <div style={{ fontSize: 18, fontWeight: 600, color: TEXT.PRIMARY, marginBottom: 8 }}>Connect your wallet</div>
-        <div style={{ fontSize: 13, color: TEXT.TERTIARY, marginBottom: 24, maxWidth: 400, margin: '0 auto 24px' }}>
+        <div style={{ fontSize: 13, color: TEXT.TERTIARY, maxWidth: 400, margin: '0 auto 24px' }}>
           Connect your wallet to see your personal developer dashboard — transactions, contracts deployed, gas spent and more on Arc testnet.
         </div>
         <ConnectButton />
