@@ -168,7 +168,7 @@ export function DevDashboardTab() {
     setLoading(true)
     try {
       const balHex = await rpcCall('eth_getBalance', [addr, 'latest'])
-      const balance = (hexToNum(balHex) / 1e6).toFixed(4)
+      const balance = (Number(BigInt(balHex)) / 1e18).toFixed(6)
 
       const latestHex = await rpcCall('eth_blockNumber')
       const latest = hexToNum(latestHex)
