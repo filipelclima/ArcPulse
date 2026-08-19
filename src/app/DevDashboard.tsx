@@ -168,7 +168,13 @@ export function DevDashboardTab() {
     setLoading(true)
     try {
       const balHex = await rpcCall('eth_getBalance', [addr, 'latest'])
-      const balance = (hexToNum(balHex) / 1e6).toFixed(4)
+      // Native eth_getBalance always returns 18 decimals on Arc, even though the
+      // ERC-20 USDC interface (used everywhere else) is 6 — same balance, two
+      // views. Confirmed against docs.arc.io/arc/references/evm-differences.
+      // Only ever used for display below (.toFixed string, never re-parsed for
+      // comparison/arithmetic/tx amounts), so Number()'s precision loss above
+      // ~16 significant digits is harmless here.
+      const balance = (Number(BigInt(balHex)) / 1e18).toFixed(6)
 
       const latestHex = await rpcCall('eth_blockNumber')
       const latest = hexToNum(latestHex)
