@@ -99,6 +99,17 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
   cron-job.org chama `/api/collect` às 9:00 UTC todo dia — tem histórico de execuções com status HTTP
   que o Vercel Hobby não oferece. Com duas chamadas automáticas/dia + self-heal, gaps de coleta de
   múltiplos dias devem ser eliminados.
+- **Extração de tokens de cor para `src/lib/theme.ts` — concluído (16/08).** Refactor puro (sem
+  mudança visual): os ~570 hex hardcoded espalhados em `page.tsx` (inline `style={{}}` — projeto não
+  usa Tailwind apesar de listado no `package.json`, ver `CLAUDE.md`) viraram tokens nomeados,
+  agrupados em `SURFACES`, `TEXT`, `ACCENT`, `SEMANTIC` e um array `CHART_COLORS` com as 4 cores de
+  série usadas nos gráficos Recharts, mais `NETWORK_BRAND_COLORS` para as cores de marca de outras
+  chains (aba Networks). Valores idênticos aos originais, só ganharam nome — inclusive os 4 níveis de
+  severidade reais do app (success/warning/degraded/danger, não só 3) e os casos onde a mesma cor
+  hex já era reaproveitada em papéis diferentes (ex. `#1D9E75` como accent de marca, cor de sucesso
+  *e* primeira cor da série do gráfico — viraram um único token `ACCENT.PRIMARY` referenciado nos
+  outros lugares em vez de duplicado). `globals.css` não foi tocado — ainda tem 2 hex próprios
+  (`#0a0a0f`, `#e2e8f0` no `body`) fora do `theme.ts`, pendente para uma próxima sessão.
 
 **Pendências abertas:**
 - Localizar e limpar o projeto Supabase órfão associado ao `arc-pulse` (free tier permite só 2
@@ -117,6 +128,17 @@ Network Status (Success Rate + Tx Type Breakdown + RPC Monitor + Gas Estimator),
 
 > HashZero cola aqui resumos de anúncios do Discord da Arc entre sessões, pra manter qualquer chat
 > novo atualizado sem precisar reexplicar tudo.
+
+- **31/07/2026 — Circle Agent Stack: auto-update.** Circle lançou auto-update para o Circle Agent
+  Stack (o CLI/tooling usado para construir agentes que integram com produtos Circle/Arc, ex.
+  ERC-8004/x402 mencionados na entrada da Vyper acima):
+  - `circle update` — atualiza o CLI (requer v0.0.6+)
+  - `circle skill update --tool claude-code` — atualiza Circle Skills com os últimos patterns
+  Docs: developers.circle.com/agent-stack.
+  **Relevância pro ArcPulse:** é update de tooling de dev, não uma feature/produto na Arc em si —
+  ainda não usamos o Circle Agent Stack diretamente no projeto. Vale re-visitar se a ideia futura de
+  aba "Agent Activity" (ver entrada da Vyper acima) sair do papel, já que esse CLI provavelmente é o
+  caminho recomendado pela Circle para automatizar esse tipo de integração. Só anotado por enquanto.
 
 - **26/06/2026 — Vyper on Arc (agentic payments).** Spotlight da Arc sobre o trabalho da Vyper
   (linguagem Pythonic para EVM, framework Titanoboa) na Arc Testnet combinando três camadas: identidade
